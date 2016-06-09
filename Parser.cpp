@@ -30,7 +30,7 @@ void Parser::readParameters(){
 void Parser::readInputConfiguration(){
     std::string config_filename;
 
-    real_d mass,pos_x,pos_y,pos_z,vel_x,vel_y,vel_z;
+    real_d mass,radius,pos_x,pos_y,pos_z,vel_x,vel_y,vel_z;
 
     config_filename = this->params["part_input_file"];
 
@@ -46,8 +46,9 @@ void Parser::readInputConfiguration(){
     }
 
     for(int i=0;i<this->num_particles;i++){
-        input_file>>mass>>pos_x>>pos_y>>pos_z>>vel_x>>vel_y>>vel_z;
+        input_file>>mass>>radius>>pos_x>>pos_y>>pos_z>>vel_x>>vel_y>>vel_z;
         (this->mass).push_back(mass);
+        (this->radius).push_back(radius);
         (this->pos).push_back(pos_x);
         (this->pos).push_back(pos_y);
         (this->pos).push_back(pos_z);
@@ -59,7 +60,7 @@ void Parser::readInputConfiguration(){
     input_file.close();
 }
 
-void Parser::fillBuffers(cudaDeviceBuffer<real_d> &mass,
+void Parser::fillBuffers(cudaDeviceBuffer<real_d> &mass, cudaDeviceBuffer<real_d> &radius,
                          cudaDeviceBuffer<real_d> &velocity,
                          cudaDeviceBuffer<real_d> &position) {
 
@@ -67,6 +68,7 @@ void Parser::fillBuffers(cudaDeviceBuffer<real_d> &mass,
 
         real_l vidx  = i * 3 ;
         mass[i] = this->mass[i] ;
+        radius[i] = this->radius[i];
         position[vidx]    = this->pos[vidx] ;
         position[vidx +1] = this->pos[vidx+1];
         position[vidx +2] = this->pos[vidx+2];

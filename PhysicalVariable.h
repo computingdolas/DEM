@@ -13,7 +13,8 @@
 enum PhysicalQuantity {
     
     Scalar ,
-    Vector
+    Vector,
+    Quat
 };
 
 #endif /* PhysicalVariable_h */

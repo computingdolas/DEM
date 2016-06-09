@@ -18,6 +18,7 @@ public:
     std::map<std::string,std::string> params;
 
     std::vector<real_d> mass;
+    std::vector<real_d> radius;
     std::vector<real_d> pos;
     std::vector<real_d> vel;
 
@@ -34,7 +35,8 @@ public:
     void readInputConfiguration();
 
     // Fill the cudaDeviceBuffers
-    void fillBuffers(cudaDeviceBuffer<real_d> &mass, cudaDeviceBuffer<real_d> &velocity, cudaDeviceBuffer<real_d> &position ) ;
+    void fillBuffers(cudaDeviceBuffer<real_d> &mass, cudaDeviceBuffer<real_d>  &radius,  \
+                     cudaDeviceBuffer<real_d> &velocity, cudaDeviceBuffer<real_d> &position ) ;
 
 };
 #endif // PARSER_H

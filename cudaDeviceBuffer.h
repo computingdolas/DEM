@@ -64,9 +64,12 @@ cudaDeviceBuffer<type>::cudaDeviceBuffer(real_l _numParticles,const PhysicalQuan
     if (phyVar == PhysicalQuantity::Scalar) {
         actualSize = _numParticles ;
     }
-    else
+    else if{
         actualSize = _numParticles * DIM;
-
+    }
+    else{
+        actualSize = _numParticles * 4;//for quaternions
+    }
     // Allocating the data
     data.resize(actualSize,0.0) ; // May be problem here
 

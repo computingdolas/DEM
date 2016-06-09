@@ -7,7 +7,7 @@ VTKWriter::VTKWriter(std::string file_base){
 }
 
 //Output file writer
-void VTKWriter::writeVTKOutput(const cudaDeviceBuffer<real_d> &mass, const cudaDeviceBuffer<real_d> &position, const cudaDeviceBuffer<real_d> &velocity, int num_particles){
+void VTKWriter::writeVTKOutput(const cudaDeviceBuffer<real_d> &mass, const cudaDeviceBuffer<real_d> &radius, const cudaDeviceBuffer<real_d> &position, const cudaDeviceBuffer<real_d> &velocity, int num_particles){
     std::ofstream outfile;
     std::ostringstream file_number_str;
     file_number_str<<this->file_number;
@@ -39,6 +39,13 @@ void VTKWriter::writeVTKOutput(const cudaDeviceBuffer<real_d> &mass, const cudaD
     outfile<<"LOOKUP_TABLE default"<<std::endl;
     for(int i=0;i<num_particles;i++){
         outfile<<std::setprecision(8)<<mass[i]<<std::endl;
+    }
+
+    //Output radius
+    outfile<<"SCALARS r double"<<std::endl;
+    outfile<<"LOOKUP_TABLE default"<<std::endl;
+    for(int i=0;i<num_particles;i++){
+        outfile<<std::setprecision(8)<<radius[i]<<std::endl;
     }
 
     //Output velocity
