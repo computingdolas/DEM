@@ -64,9 +64,9 @@ void Parser::fillBuffers(cudaDeviceBuffer<real_d> &mass, cudaDeviceBuffer<real_d
                          cudaDeviceBuffer<real_d> &velocity,
                          cudaDeviceBuffer<real_d> &position) {
 
-    for (real_l i =0 ; i < this->num_particles ; ++i ){
+    for (u_int i =0 ; i < this->num_particles ; ++i ){
 
-        real_l vidx  = i * 3 ;
+        u_int vidx  = i * 3 ;
         mass[i] = this->mass[i] ;
         radius[i] = this->radius[i];
         position[vidx]    = this->pos[vidx] ;

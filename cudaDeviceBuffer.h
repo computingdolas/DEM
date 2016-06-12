@@ -24,8 +24,8 @@ private:
     
     PhysicalQuantity phyVar ;
     std::vector<type> data ; // Data on the host ...//
-    real_l actualSize ; // Actual size to be allocated ...//
-    real_l numBytes_ ;
+    u_int actualSize ; // Actual size to be allocated ...//
+    u_int numBytes_ ;
     
 public:
     
@@ -33,12 +33,12 @@ public:
     type *devicePtr ; // Pointer on the Device ..///
 
     // Constructing the Buffer......//
-    explicit cudaDeviceBuffer(real_l numParticles_,const PhysicalQuantity phyVar_) ;
+    explicit cudaDeviceBuffer(u_int numParticles_,const PhysicalQuantity phyVar_) ;
     ~cudaDeviceBuffer() ;
     
     // Accessing the data.....//
-    const type& operator[](real_l index_) const ;
-    type& operator[](real_l index_) ;
+    const type& operator[](u_int index_) const ;
+    type& operator[](u_int index_) ;
     
     // Memory Operations....//
     void copyToHost() ;
@@ -59,12 +59,12 @@ public:
 };
 
 template<typename type>
-cudaDeviceBuffer<type>::cudaDeviceBuffer(real_l _numParticles,const PhysicalQuantity _phyVar ) : phyVar(_phyVar) {
+cudaDeviceBuffer<type>::cudaDeviceBuffer(u_int _numParticles,const PhysicalQuantity _phyVar ) : phyVar(_phyVar) {
 
     if (phyVar == PhysicalQuantity::Scalar) {
         actualSize = _numParticles ;
     }
-    else if{
+    else if(phyVar == PhysicalQuantity::Vector){
         actualSize = _numParticles * DIM;
     }
     else{
@@ -84,13 +84,13 @@ cudaDeviceBuffer<type>::~cudaDeviceBuffer<type>(){
 
 }
 template<typename type>
-const type& cudaDeviceBuffer<type>::operator[](real_l index_) const{
+const type& cudaDeviceBuffer<type>::operator[](u_int index_) const{
 
     return data[index_] ;
 }
 
 template<typename type>
-type& cudaDeviceBuffer<type>::operator[](real_l index_){
+type& cudaDeviceBuffer<type>::operator[](u_int index_){
 
     return data[index_] ;
 }
