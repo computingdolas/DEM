@@ -135,8 +135,8 @@ __device__ void fillIterators(const u_int idx, const u_int idy,  const u_int idz
 
 __device__ void addForces(const u_int id_a, const u_int id_b, const real_d *position, real_d *force,\
                      real_d *temp_vel, real_d pen_depth, const real_d *const_args){
-    const real_d kf = 0.2;
-    const real_d kdt = 0.2;
+    const real_d kf = 0.1;
+    const real_d kdt = 0.1;
 
     real_d normal[3];
 
@@ -145,6 +145,7 @@ __device__ void addForces(const u_int id_a, const u_int id_b, const real_d *posi
 
     equalize(normal,&position[id_b*3]);
     subtract(normal,&position[id_a*3]);
+    scalMult(normal,-1.0);
 
     real_d norm_normal = norm(normal);
 
@@ -166,11 +167,11 @@ __device__ void addForces(const u_int id_a, const u_int id_b, const real_d *posi
     add(force_n,vel_n);//force_n contains the normal component of force
 
     real_d ft = fmin(norm(force_n)*kf,kdt*norm(vel_t));
-    scalMult(vel_t,(ft/norm(vel_t)));//vel_t now contains the normal component of force
+    scalMult(vel_t,(ft/norm(vel_t)));//vel_t now contains the tangential component of force
     equalize(force_t,vel_t);//set force_t = vel_t
 
     //Finally add the computed forces
-    add(&force[id_a*3],force_t);
+    //add(&force[id_a*3],force_t);
     add(&force[id_a*3],force_n);
 
 }
@@ -199,6 +200,22 @@ __device__ void findContactVelocity(u_int idx, u_int curr_id, real_d *temp_pos1,
      subtract(temp_pos1,temp_pos2);//contact velocity is stored in temp_pos1
 }
 
+__device__ void positionCorrect(real_d *myposition, const real_d *const_args, const u_int *reflect){
+
+    bool left,right;
+    for(int i=0;i<3;i++){
+        //check if I am out of domain bounds for each dimension
+        if((right = (myposition[i] > const_args[i*2+1]))  || (left = (myposition[i] < const_args[i*2]))){
+            if(reflect[i]){
+                myposition[i] += 2*(left*(const_args[2*i]-myposition[i])-right*(myposition[i]-const_args[2*i+1]));
+            }
+            else{
+                myposition[i] += left*(const_args[2*i+1]-const_args[2*i])-right*(const_args[2*i+1]-const_args[2*i]);
+            }
+        }
+    }
+}
+
 //Initialize particle list
 __global__ void initializeParticleList(u_int *particle_list, const u_int numparticles){
     u_int idx = blockDim.x*blockIdx.x+threadIdx.x;
@@ -216,7 +233,7 @@ __global__ void createNeighbourList(int *neighbour_list, const int *num_cells, c
     u_int id_g = globalID(id_x,id_y,id_z,num_cells);
     u_int n_id = 26*id_g;
 
-    //Iterators
+    //Iterators I,J and K....Will contain information related to neighbours in X,Y and Z directions
     int I[3] = {-1,0,1};
     int J[3] = {-1,0,1};
     int K[3] = {-1,0,1};
@@ -326,6 +343,7 @@ __global__ void calcForces(real_d *force, const real_d *position,const real_d *r
                    //Contact detection
                    in_contact =  contactDetect(idx,curr_id,position,radius,&pen_depth);
                    if(in_contact){
+                       //contact velocity is computed and stored in temp_pos1
                        findContactVelocity(idx,curr_id,temp_pos1,temp_pos2,position,\
                                            velocity,radius,a_velocity);
                        equalize(temp_vel,temp_pos1);
@@ -335,52 +353,88 @@ __global__ void calcForces(real_d *force, const real_d *position,const real_d *r
                }
 
             }
+            count++;
+        }
+
+        //Now iterate through own list
+        head_id = cell_list[cell_id]-1;
+        for(int curr_id = head_id;curr_id != -1;curr_id  = particle_list[curr_id]-1){
+            if(curr_id != idx){
+                //Contact detection
+                in_contact =  contactDetect(idx,curr_id,position,radius,&pen_depth);
+                if(in_contact){
+                    //contact velocity is computed and stored in temp_pos1
+                    findContactVelocity(idx,curr_id,temp_pos1,temp_pos2,position,\
+                                        velocity,radius,a_velocity);
+                    equalize(temp_vel,temp_pos1);
+                    addForces(idx,curr_id,position,force,temp_vel,pen_depth,const_args);
+
+                }
+            }
         }
 
     }
 }
 
 //Position update
-__global__ void updatePosition(const real_d *force,real_d *position,const real_d* velocity, const real_d * mass,const real_l numparticles,const real_d timestep, const real_d* const_args) {
+__global__ void updatePosition(const real_d *force,real_d *position,const real_d* velocity, \
+                               const real_d * mass,const u_int numparticles,const real_d timestep,\
+                               const real_d* const_args, const u_int *reflect) {
 
-    real_l idx = threadIdx.x + blockIdx.x * blockDim.x ;
+    u_int idx = threadIdx.x + blockIdx.x * blockDim.x ;
 
     if(idx < numparticles ){
 
-        real_l vidx = idx * 3 ;
+        u_int vidx = idx * 3 ;
 
         position[vidx]   += (timestep * velocity[vidx] ) + ( (force[vidx] * timestep * timestep) / ( 2.0 * mass[idx]) ) ;
         position[vidx+1] += (timestep * velocity[vidx+1] ) + ( (force[vidx+1] * timestep * timestep) / ( 2.0 * mass[idx]) ) ;
         position[vidx+2] += (timestep * velocity[vidx+2] ) + ( (force[vidx+2] * timestep * timestep) / ( 2.0 * mass[idx]) ) ;
 
-        // CHecking if the particle has left the physical domain direction wise ,for each direction
-
-        // Checking for the x direction
-        if (position[vidx] < const_args[0]) position[vidx] += (const_args[1]-const_args[0]) ;
-        if (position[vidx] > const_args[1]) position[vidx] -= (const_args[1]-const_args[0]) ;
-
-        // Checking for the y direction
-        if (position[vidx+1] < const_args[2]) position[vidx+1] += (const_args[3]-const_args[2]) ;
-        if (position[vidx+1] > const_args[3]) position[vidx+1] -= (const_args[3]-const_args[2]) ;
-
-        // CHecking for z direction and updating the same
-        if (position[vidx+2] < const_args[4]) position[vidx+2] += (const_args[5]-const_args[4]) ;
-        if (position[vidx+2] > const_args[5]) position[vidx+2] -= (const_args[5]-const_args[4]) ;
+        //Check for boundary conditions and correct the positions accordingly
+        positionCorrect(&position[vidx],const_args,reflect);
 
     }
 }
 
-// Velocity Update
-__global__ void updateVelocity(const real_d*forceNew,const real_d*forceOld,real_d * velocity, const real_d* mass,const real_l numparticles ,const real_d timestep ){
+// Copying the forces
+__global__ void copyForces(real_d * fold,real_d * fnew, const u_int numparticles) {
 
-    real_l idx = threadIdx.x + blockIdx.x * blockDim.x ;
+    u_int idx = threadIdx.x + blockIdx.x * blockDim.x ;
 
     if(idx < numparticles){
-    real_l vidx = idx * 3 ;
+        u_int vidxp = idx * 3 ;
 
-    velocity[vidx] += ( (forceNew[vidx] + forceOld[vidx]) * timestep ) / (2.0 * mass[idx] ) ;
-    velocity[vidx+1] += ( (forceNew[vidx+1] + forceOld[vidx+1]) * timestep ) / (2.0 * mass[idx] ) ;
-    velocity[vidx+2] += ( (forceNew[vidx+2] + forceOld[vidx+2]) * timestep ) / (2.0 * mass[idx] ) ;
+        for(u_int i =vidxp ; i < vidxp+3; ++i ){
+            fold[i] = fnew[i] ;
+        }
+    }
+}
+
+//Reset the buffer with 0s if the thread grid is 3 dimensional
+template <typename T>__global__ void setToZero3D(T *buffer, const int* num_cells){
+    u_int idx = threadIdx.x+blockIdx.x*blockDim.x;
+    u_int idy = threadIdx.y+blockIdx.y*blockDim.y;
+    u_int idz = threadIdx.z+blockIdx.z*blockDim.z;
+
+    u_int id_g = globalID(idx,idy,idz,num_cells);
+    if(idx < num_cells[0] && idy < num_cells[1] && idz < num_cells[2]){
+        buffer[id_g] = 0;
+    }
+}
+
+// Velocity Update
+__global__ void updateVelocity(const real_d*forceNew,const real_d*forceOld,real_d * velocity, \
+                               const real_d* mass,const u_int numparticles ,const real_d timestep ){
+
+    u_int idx = threadIdx.x + blockIdx.x * blockDim.x ;
+
+    if(idx < numparticles){
+        u_int vidx = idx * 3 ;
+
+        velocity[vidx] += ( (forceNew[vidx] + forceOld[vidx]) * timestep ) / (2.0 * mass[idx] ) ;
+        velocity[vidx+1] += ( (forceNew[vidx+1] + forceOld[vidx+1]) * timestep ) / (2.0 * mass[idx] ) ;
+        velocity[vidx+2] += ( (forceNew[vidx+2] + forceOld[vidx+2]) * timestep ) / (2.0 * mass[idx] ) ;
     }
 
 }

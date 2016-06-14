@@ -142,11 +142,30 @@ int main(int argc, char *argv[]){
 
     //Calculate the number of blocks
     //Calculate the number of blocks for both types of launches(1D and 3D)
-    u_int num_blocks ;
+    u_int num_blocks,num_blocks_x,num_blocks_y,num_blocks_z ;
 
-    if(numparticles % threads_per_blocks ==0){
+    if(numparticles % threads_per_blocks ==0)
         num_blocks = numparticles / threads_per_blocks ;
-    }
+    else
+        num_blocks = (numparticles / threads_per_blocks) + 1;
+
+    if(num_cells[0] % threads_per_blocks_x ==0)
+        num_blocks_x = num_cells[0] / threads_per_blocks_x ;
+    else
+        num_blocks_x = (num_cells[0] / threads_per_blocks_x) + 1;
+
+    if(num_cells[1] % threads_per_blocks_y ==0)
+        num_blocks_y = num_cells[1] / threads_per_blocks_y ;
+    else
+        num_blocks_y = (num_cells[1] / threads_per_blocks_y) + 1;
+
+    if(num_cells[2] % threads_per_blocks_y ==0)
+        num_blocks_z = num_cells[2] / threads_per_blocks_z ;
+    else
+        num_blocks_z = (num_cells[2] / threads_per_blocks_z) + 1;
+
+    dim3 blockDim(threads_per_blocks_x,threads_per_blocks_y,threads_per_blocks_z);
+    dim3 gridDim(num_blocks_x,num_blocks_y,num_blocks_z);
 
     real_d time_taken = 0.0 ;
 
@@ -155,6 +174,10 @@ int main(int argc, char *argv[]){
     {
 
         u_int iter = 0 ;
+
+        //Create the list of neighbours for each cell depending upon the boundary conditions
+        createNeighbourList<<<gridDim,blockDim>>>(neighbour_list.devicePtr,num_cells.devicePtr,reflect.devicePtr);
+
         //Ready the particle and cell list for updates
         initializeParticleList<<<num_blocks,threads_per_blocks>>>(particle_list.devicePtr,numparticles);
 
@@ -162,13 +185,59 @@ int main(int argc, char *argv[]){
         updateListsParPar<<<num_blocks,threads_per_blocks>>>(cell_list.devicePtr,particle_list.devicePtr,const_args.devicePtr,\
                                                              numparticles,position.devicePtr,num_cells.devicePtr);
 
+        //Calculate initial forces
+        calcForces<<<num_blocks,threads_per_blocks>>>(forcenew.devicePtr, position.devicePtr,radius.devicePtr, \
+                                                     const_args.devicePtr, num_cells.devicePtr, reflect.devicePtr,\
+                                                     cell_list.devicePtr, particle_list.devicePtr,neighbour_list.devicePtr, \
+                                                     velocity.devicePtr, a_velocity.devicePtr, numparticles);
+
+        //Start time stepping now
+        for(real_d t =0.0 ; t < time_end ; t+= timestep_length ) {
+            time.reset();
+
+            if(iter % vtk_out_freq == 0){
+                // copy to host back
+                forcenew.copyToHost();
+                forceold.copyToHost();
+                position.copyToHost();
+                velocity.copyToHost();
+                writer.writeVTKOutput(mass,radius,position,velocity,numparticles);
+            }
+
+            // Update the Position
+            updatePosition<<<num_blocks,threads_per_blocks>>>(forcenew.devicePtr,position.devicePtr,velocity.devicePtr,\
+                                                              mass.devicePtr,numparticles,timestep_length,\
+                                                              const_args.devicePtr,reflect.devicePtr);
+
+            // Copy the forces
+            copyForces<<<num_blocks,threads_per_blocks>>>(forceold.devicePtr,forcenew.devicePtr, numparticles);
+
+            //Ready the particle and cell list for updates
+            initializeParticleList<<<num_blocks,threads_per_blocks>>>(particle_list.devicePtr,numparticles);
+            //Reset the linked lists to 0
+            setToZero3D<<<gridDim,blockDim>>>(cell_list.devicePtr,num_cells.devicePtr);
+
+            //Update the linked list
+            updateListsParPar<<<num_blocks,threads_per_blocks>>>(cell_list.devicePtr,particle_list.devicePtr,const_args.devicePtr,\
+                                                                 numparticles,position.devicePtr,num_cells.devicePtr);
 
 
+            //Calculate forces
+            calcForces<<<num_blocks,threads_per_blocks>>>(forcenew.devicePtr, position.devicePtr,radius.devicePtr, \
+                                                         const_args.devicePtr, num_cells.devicePtr, reflect.devicePtr,\
+                                                         cell_list.devicePtr, particle_list.devicePtr,neighbour_list.devicePtr,\
+                                                         velocity.devicePtr, a_velocity.devicePtr, numparticles);
 
-        time_taken += time.elapsed();
 
-        // Iterator count
-        ++iter ;
+            // Update the velocity
+            updateVelocity<<<num_blocks,threads_per_blocks>>>(forcenew.devicePtr,forceold.devicePtr,velocity.devicePtr,\
+                                                              mass.devicePtr,numparticles,timestep_length);
+            time_taken += time.elapsed();
+
+            // Iterator count
+            ++iter ;
+
+        }
 
 
     }
