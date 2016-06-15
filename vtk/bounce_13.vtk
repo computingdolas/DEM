@@ -3,7 +3,7 @@ hesp visualization file
 ASCII
 DATASET UNSTRUCTURED_GRID
 POINTS 1 double
-0.5 0.5 0.5
+0.5 0.42395 0.5
 CELLS 0 0
 CELL_TYPES 0
 POINT_DATA 1
@@ -14,4 +14,4 @@ SCALARS r double
 LOOKUP_TABLE default
 0.1
 VECTORS v double
-0 0 0
+0 -0.39 0

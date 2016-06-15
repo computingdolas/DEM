@@ -67,7 +67,7 @@ int main(int argc, char *argv[]){
     cudaDeviceBuffer<real_d> torquenew(numparticles,PhysicalQuantity::Vector) ;
     cudaDeviceBuffer<u_int> cell_list(numcells,PhysicalQuantity::Scalar);
     cudaDeviceBuffer<u_int> particle_list(numparticles,PhysicalQuantity::Scalar);
-    cudaDeviceBuffer<real_d> const_args(11,PhysicalQuantity::Scalar);
+    cudaDeviceBuffer<real_d> const_args(16,PhysicalQuantity::Scalar);
     cudaDeviceBuffer<int> num_cells(3,PhysicalQuantity::Scalar);
     cudaDeviceBuffer<int> neighbour_list(26*numcells,PhysicalQuantity::Scalar);
     cudaDeviceBuffer<u_int> reflect(3,PhysicalQuantity::Scalar);
@@ -96,6 +96,11 @@ int main(int argc, char *argv[]){
     const_args[8] = len_z;
     const_args[9] = ks;
     const_args[10] = kdn;
+    const_args[11] = gx;
+    const_args[12] = gy;
+    const_args[13] = gz;
+    const_args[14] = 0.1;
+    const_args[15] = 0.1;
 
     //Number of cells per dimension
     num_cells[0] = xn;
@@ -190,6 +195,7 @@ int main(int argc, char *argv[]){
                                                      const_args.devicePtr, num_cells.devicePtr, reflect.devicePtr,\
                                                      cell_list.devicePtr, particle_list.devicePtr,neighbour_list.devicePtr, \
                                                      velocity.devicePtr, a_velocity.devicePtr, numparticles);
+
 
         //Start time stepping now
         for(real_d t =0.0 ; t < time_end; t+= timestep_length ) {

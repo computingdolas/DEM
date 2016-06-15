@@ -57,6 +57,32 @@ __device__ u_int globalID(const u_int x, const u_int y, const u_int z, const int
     return (z*(numcells[0]*numcells[1]) + y*numcells[0] + x);
 }
 
+__device__ bool isBoundaryCell(const u_int cell_id, const int *num_cells, bool *which_boundary){
+    u_int ids[3];
+    ids[0] =  (cell_id%(num_cells[0]*num_cells[1]))%num_cells[0];
+    ids[1] = (cell_id%(num_cells[0]*num_cells[1]))/num_cells[0];
+    ids[2] = cell_id/(num_cells[0]*num_cells[1]);
+
+    bool ret_value = false;
+    for(int i=0;i<3;i++){
+        if(ids[i] == 0){
+            which_boundary[2*i] = true;
+            which_boundary[2*i+1] = false;
+        }
+        else if(ids[i] == num_cells[i]-1){
+            which_boundary[2*i] = true;
+            which_boundary[2*i+1] = true;
+        }
+        else{
+            which_boundary[2*i] = false;
+            which_boundary[2*i+1] = false;
+        }
+
+        ret_value = ret_value || which_boundary[2*i];
+    }
+
+    return ret_value;
+}
 //Give global cell ID of the cell in which the particle is located
 __device__ u_int giveCellID(const real_d *position, const real_d *const_args, \
                             const int *num_cells, u_int *id, const  u_int idx){
@@ -136,8 +162,8 @@ __device__ void fillIterators(const u_int idx, const u_int idy,  const u_int idz
 
 __device__ void addForces(const u_int id_a, const u_int id_b, const real_d *position, real_d *force,\
                      real_d *temp_vel, real_d pen_depth, const real_d *const_args){
-    const real_d kf = 0.1;
-    const real_d kdt = 0.1;
+    const real_d kf = const_args[14];
+    const real_d kdt = const_args[15];
 
     real_d normal[3];
 
@@ -177,7 +203,6 @@ __device__ void addForces(const u_int id_a, const u_int id_b, const real_d *posi
     //Finally add the computed forces
     add(&force[id_a*3],force_t);
     add(&force[id_a*3],force_n);
-
 }
 
 __device__ void findContactVelocity(u_int idx, u_int curr_id, real_d *temp_pos1, \
@@ -211,7 +236,7 @@ __device__ void positionCorrect(real_d *myposition, const real_d *const_args, co
         //check if I am out of domain bounds for each dimension
         right = myposition[i] > const_args[i*2+1];
         left = myposition[i] < const_args[i*2];
-        if(right || left){
+        if((right || left) && !reflect[i]){
                 myposition[i] += left*(const_args[2*i+1]-const_args[2*i])-right*(const_args[2*i+1]-const_args[2*i]);
         }
     }
@@ -323,16 +348,82 @@ __global__ void calcForces(real_d *force, const real_d *position,const real_d *r
 
     int head_id;
 
-    real_d temp_vel[3],temp_pos1[3],temp_pos2[3],pen_depth;
+    real_d gravity[3] = {const_args[11],const_args[12],const_args[13]};
+    real_d temp_vel[3],temp_pos1[3],temp_pos2[3],temp_force[3],pen_depth;
+
     bool in_contact;
+    bool which_boundary[6];
+
+    u_int bound_id = 0;
     if(idx < numparticles){
-        force[idx*3] = 0.0;
-        force[idx*3+1] = 0.0;
-        force[idx*3+2] = 0.0;
+        force[idx*3] = gravity[0];
+        force[idx*3+1] = gravity[1];
+        force[idx*3+2] = gravity[2];
 
         cell_id = giveCellID(position,const_args,num_cells,id,idx);
 
-        n_id = 26*cell_id;
+        n_id = 26*cell_id;//for indexing the neighbour list
+
+        //Check contact with walls and add forces accordingly
+        if(isBoundaryCell(cell_id,num_cells,which_boundary)){
+            real_d wall_pos,vn,mag;
+            for(int i=0;i<3;i++){
+                if(which_boundary[2*i] && reflect[i]){
+                   bound_id = which_boundary[2*i+1];
+                   wall_pos = const_args[2*i+bound_id];//position of the wall
+
+                   //Detect contact with wall
+                   pen_depth = radius[idx]-abs(wall_pos-position[idx*3+i]);
+                   if(pen_depth < 0){
+
+                       //(x - x_a)
+                       temp_pos1[i] = (wall_pos-position[idx*3+i]);temp_pos1[(i+1)%3]=0;temp_pos1[(i+2)%3]=0;
+                      equalize(temp_pos2,temp_pos1);
+
+                       scalMult(temp_pos2,(1.0/norm(temp_pos2)));//unit normal vector
+                      equalize(temp_force,temp_pos2);
+
+                       //w*(x - x_a)
+                       crossProd(&a_velocity[idx*3],temp_pos1);
+
+                       // v += ..... Contact velocity
+                       add(temp_pos1,&velocity[idx*3]);
+
+                       //storing v_n in temp_pos2
+                       vn = dotProd(temp_pos1,temp_pos2);
+                       scalMult(temp_pos2,vn);
+
+                       //storing v_t in temp_pos1
+                       subtract(temp_pos1,temp_pos2);
+
+                       //kdn*v_n
+                       scalMult(temp_pos2,-1.0*const_args[10]);
+
+                       //k_s*pn
+                       scalMult(temp_force,const_args[9]*pen_depth);
+
+                       //compile the normal force
+                       add(temp_force,temp_pos2);//temp_force = F_n
+
+
+                       //Find the magnitude of tangential force
+                       mag =  fmin(const_args[14]*norm(temp_pos1),const_args[15]*norm(temp_force));
+
+                       //store F_t in temp_pos1
+                       scalMult(temp_pos1,(1.0/norm(temp_pos1))*mag);
+
+                       //add tangential forces
+                      // add(&force[idx*3],temp_pos1);
+                       //add normal forces
+                       add(&force[idx*3],temp_force);
+
+
+                   }
+
+                }
+            }
+         }
+
 
         //Calculate the forces...First iterate through cells which are neighbours
         count=0;
@@ -376,6 +467,8 @@ __global__ void calcForces(real_d *force, const real_d *position,const real_d *r
 
     }
 }
+
+
 
 //Position update
 __global__ void updatePosition(const real_d *force,real_d *position,const real_d* velocity, \
