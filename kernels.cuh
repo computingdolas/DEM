@@ -97,7 +97,8 @@ __device__ bool contactDetect(const u_int id_a, const u_int id_b, const real_d* 
 
     real_d vec_norm = norm(rel_vec);
 
-    if((radius[id_a]+radius[id_b]-vec_norm) < 0 ){
+    *pen_depth = radius[id_a]+radius[id_b]-vec_norm;
+    if(*pen_depth < 0 ){
         return false;
     }
     return true;
@@ -143,8 +144,10 @@ __device__ void addForces(const u_int id_a, const u_int id_b, const real_d *posi
     real_d force_n[3],vel_n[3];
     real_d force_t[3],vel_t[3];
 
+    //printf("My position is %f %f %f\n",position[id_a*3],position[id_a*3+1],position[id_a*3+2]);
     equalize(normal,&position[id_b*3]);
     subtract(normal,&position[id_a*3]);
+
     scalMult(normal,-1.0);
 
     real_d norm_normal = norm(normal);
@@ -160,18 +163,19 @@ __device__ void addForces(const u_int id_a, const u_int id_b, const real_d *posi
     subtract(vel_t,temp_vel);
     scalMult(vel_t,-1.0);//vel_t contains the tangential velocity
 
-
     equalize(force_n,normal);
-    scalMult(force_n,const_args[9]*pen_depth);
-    scalMult(vel_n,-1.0*const_args[10]);
+    scalMult(force_n,const_args[9]*pen_depth);// force_n += k_s*p (n^)
+    scalMult(vel_n,-1.0*const_args[10]);//force_n  += kdn*vel_n
     add(force_n,vel_n);//force_n contains the normal component of force
+    //printf("My normal is %f %f %f\n",force_n[0],force_n[1],force_n[2]);
+    //printf("ks, kdn, p: %f %f %f",const_args[9],const_args[10],pen_depth);
 
     real_d ft = fmin(norm(force_n)*kf,kdt*norm(vel_t));
     scalMult(vel_t,(ft/norm(vel_t)));//vel_t now contains the tangential component of force
     equalize(force_t,vel_t);//set force_t = vel_t
 
     //Finally add the computed forces
-    //add(&force[id_a*3],force_t);
+    add(&force[id_a*3],force_t);
     add(&force[id_a*3],force_n);
 
 }
@@ -205,13 +209,10 @@ __device__ void positionCorrect(real_d *myposition, const real_d *const_args, co
     bool left,right;
     for(int i=0;i<3;i++){
         //check if I am out of domain bounds for each dimension
-        if((right = (myposition[i] > const_args[i*2+1]))  || (left = (myposition[i] < const_args[i*2]))){
-            if(reflect[i]){
-                myposition[i] += 2*(left*(const_args[2*i]-myposition[i])-right*(myposition[i]-const_args[2*i+1]));
-            }
-            else{
+        right = myposition[i] > const_args[i*2+1];
+        left = myposition[i] < const_args[i*2];
+        if(right || left){
                 myposition[i] += left*(const_args[2*i+1]-const_args[2*i])-right*(const_args[2*i+1]-const_args[2*i]);
-            }
         }
     }
 }

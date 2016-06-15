@@ -192,7 +192,7 @@ int main(int argc, char *argv[]){
                                                      velocity.devicePtr, a_velocity.devicePtr, numparticles);
 
         //Start time stepping now
-        for(real_d t =0.0 ; t < time_end ; t+= timestep_length ) {
+        for(real_d t =0.0 ; t < time_end; t+= timestep_length ) {
             time.reset();
 
             if(iter % vtk_out_freq == 0){
