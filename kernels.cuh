@@ -378,10 +378,12 @@ __global__ void calcForces(real_d *force, const real_d *position,const real_d *r
 
                        //(x - x_a)
                        temp_pos1[i] = (wall_pos-position[idx*3+i]);temp_pos1[(i+1)%3]=0;temp_pos1[(i+2)%3]=0;
-                      equalize(temp_pos2,temp_pos1);
+                       equalize(temp_pos2,temp_pos1);
 
-                       scalMult(temp_pos2,(1.0/norm(temp_pos2)));//unit normal vector
-                      equalize(temp_force,temp_pos2);
+                       if(norm(temp_pos2) != 0){
+                         scalMult(temp_pos2,(1.0/norm(temp_pos2)));//unit normal vector
+                       }
+                       equalize(temp_force,temp_pos2);
 
                        //w*(x - x_a)
                        crossProd(&a_velocity[idx*3],temp_pos1);
@@ -410,10 +412,12 @@ __global__ void calcForces(real_d *force, const real_d *position,const real_d *r
                        mag =  fmin(const_args[14]*norm(temp_pos1),const_args[15]*norm(temp_force));
 
                        //store F_t in temp_pos1
-                       scalMult(temp_pos1,(1.0/norm(temp_pos1))*mag);
+                       if(norm(temp_pos1) != 0){
+                        scalMult(temp_pos1,(1.0/norm(temp_pos1))*mag);
+                       }
 
                        //add tangential forces
-                      // add(&force[idx*3],temp_pos1);
+                       add(&force[idx*3],temp_pos1);
                        //add normal forces
                        add(&force[idx*3],temp_force);
 
