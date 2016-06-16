@@ -58,19 +58,24 @@ int main(int argc, char *argv[]){
     cudaDeviceBuffer<real_d> mass(numparticles,PhysicalQuantity::Scalar) ;
     cudaDeviceBuffer<real_d> radius(numparticles,PhysicalQuantity::Scalar);
     cudaDeviceBuffer<real_d> position(numparticles,PhysicalQuantity::Vector);
-    cudaDeviceBuffer<real_d> rotation(numparticles,PhysicalQuantity::Quat);
     cudaDeviceBuffer<real_d> a_velocity(numparticles,PhysicalQuantity::Vector);
     cudaDeviceBuffer<real_d> velocity(numparticles,PhysicalQuantity::Vector) ;
     cudaDeviceBuffer<real_d> forceold(numparticles,PhysicalQuantity::Vector) ;
     cudaDeviceBuffer<real_d> forcenew(numparticles,PhysicalQuantity::Vector) ;
     cudaDeviceBuffer<real_d> torqueold(numparticles,PhysicalQuantity::Vector) ;
     cudaDeviceBuffer<real_d> torquenew(numparticles,PhysicalQuantity::Vector) ;
+
+    // Domain Buffers
     cudaDeviceBuffer<u_int> cell_list(numcells,PhysicalQuantity::Scalar);
     cudaDeviceBuffer<u_int> particle_list(numparticles,PhysicalQuantity::Scalar);
     cudaDeviceBuffer<real_d> const_args(16,PhysicalQuantity::Scalar);
     cudaDeviceBuffer<int> num_cells(3,PhysicalQuantity::Scalar);
     cudaDeviceBuffer<int> neighbour_list(26*numcells,PhysicalQuantity::Scalar);
     cudaDeviceBuffer<u_int> reflect(3,PhysicalQuantity::Scalar);
+
+    // for rotation
+    cudaDeviceBuffer<real_d> rotation(numparticles,PhysicalQuantity::Quat);
+    cudaDeviceBuffer<real_d> rotationvector(numparticles, PhysicalQuantity::Vector) ;
 
     //reflecting or periodic boundaries
     reflect[0] = std::stol(p.params["reflect_x"]);
@@ -111,13 +116,14 @@ int main(int argc, char *argv[]){
     mass.allocateOnDevice();
     radius.allocateOnDevice();
     position.allocateOnDevice();
-    rotation.allocateOnDevice();
+
     a_velocity.allocateOnDevice();
     velocity.allocateOnDevice();
     forceold.allocateOnDevice();
     forcenew.allocateOnDevice();
     torqueold.allocateOnDevice();
     torquenew.allocateOnDevice();
+
     cell_list.allocateOnDevice();
     particle_list.allocateOnDevice();
     const_args.allocateOnDevice();
@@ -125,23 +131,32 @@ int main(int argc, char *argv[]){
     reflect.allocateOnDevice();
     neighbour_list.allocateOnDevice();
 
+    // for rotation
+    rotation.allocateOnDevice();
+    rotationvector.allocateOnDevice();
+
     //Copy to Device
     mass.copyToDevice();
     radius.copyToDevice();
     position.copyToDevice();
-    rotation.copyToDevice();
     velocity.copyToDevice();
     a_velocity.copyToDevice();
     forceold.copyToDevice();
     forcenew.copyToDevice();
     torquenew.copyToDevice();
     torqueold.copyToDevice();
+
+    // domain buffer copied to device
     cell_list.copyToDevice();
     particle_list.copyToDevice();
     const_args.copyToDevice();
     num_cells.copyToDevice();
     reflect.copyToDevice();
     neighbour_list.copyToDevice();
+
+    // rotation buffer copied to devie
+    rotationvector.copyToDevice();
+    rotation.copyToDevice();
 
     VTKWriter writer(vtk_name) ;
 
@@ -180,6 +195,12 @@ int main(int argc, char *argv[]){
 
         u_int iter = 0 ;
 
+
+        //Initialise quates for every particle
+        initialiseQuats<<<num_blocks,threads_per_blocks >>>  (rotation.devicePtr,numparticles);
+
+        // Initialising all the rotation for every particle
+        initialiseRotation<<< num_blocks,threads_per_blocks >>>  (rotationvector.devicePtr,numparticles) ;
         //Create the list of neighbours for each cell depending upon the boundary conditions
         createNeighbourList<<<gridDim,blockDim>>>(neighbour_list.devicePtr,num_cells.devicePtr,reflect.devicePtr);
 

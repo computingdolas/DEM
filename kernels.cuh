@@ -160,6 +160,8 @@ __device__ void fillIterators(const u_int idx, const u_int idy,  const u_int idz
     }
 }
 
+
+
 __device__ void addForces(const u_int id_a, const u_int id_b, const real_d *position, real_d *force,\
                      real_d *temp_vel, real_d pen_depth, const real_d *const_args){
     const real_d kf = const_args[14];
@@ -290,6 +292,35 @@ __global__ void createNeighbourList(int *neighbour_list, const int *num_cells, c
     }
 
 }
+
+__global__ void initialiseRotation(real_d  * rotationVector,const u_int numparticles) {
+
+    u_int idx  =   threadIdx.x+blockIdx.x*blockDim.x ;
+
+    if (idx < numparticles){
+
+        u_int vidx = idx * 3 ;
+        rotationVector[vidx] = 1.0;
+        rotationVector[vidx +1] = 0.0 ;
+        rotationVector[vidx +2] = 0.0 ;
+    }
+
+}
+
+__global__ void initialiseQuats(real_d * rotation,const u_int numparticles  ){
+
+    u_int idx  =   threadIdx.x+blockIdx.x*blockDim.x ;
+
+    if (idx < numparticles){
+
+        u_int vidx = idx * 4 ;
+        rotation[vidx] = 1.0 ;
+        rotation[vidx+1] = 0.0 ;
+        rotation[vidx +2] = 0.0 ;
+        rotation[vidx +3] = 0.0 ;
+    }
+}
+
 // Update the list particle parallely
 __global__ void updateListsParPar(u_int * cell_list, u_int * particle_list, const real_d  * const_args, const u_int num_particles ,const  real_d * position, const int * num_cells  ) {
 
@@ -317,7 +348,6 @@ __global__ void updateListsParPar(u_int * cell_list, u_int * particle_list, cons
         particle_list[idx] = old ;
     }
 }
-
 
 //Initialize quaternion (Particle parallel)
 __global__  void initializeQuat(real_d  *quat_buffer, u_int size){
