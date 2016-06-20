@@ -14,7 +14,7 @@ private:
     int file_number;
 public:
     VTKWriter(std::string file_base);
-    void writeVTKOutput(const cudaDeviceBuffer<real_d> &mass, const cudaDeviceBuffer<real_d>  &radius, const cudaDeviceBuffer<real_d> &position, const cudaDeviceBuffer<real_d> &velocity, int num_particles);
+    void writeVTKOutput(const cudaDeviceBuffer<real_d> &mass, const cudaDeviceBuffer<real_d>  &radius, const cudaDeviceBuffer<real_d> &position, const cudaDeviceBuffer<real_d> &velocity, const cudaDeviceBuffer<real_d> &rotvec, int num_particles);
 
 };
 #endif // VTKWRITER_H

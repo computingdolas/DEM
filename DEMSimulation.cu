@@ -64,6 +64,7 @@ int main(int argc, char *argv[]){
     cudaDeviceBuffer<real_d> forcenew(numparticles,PhysicalQuantity::Vector) ;
     cudaDeviceBuffer<real_d> torqueold(numparticles,PhysicalQuantity::Vector) ;
     cudaDeviceBuffer<real_d> torquenew(numparticles,PhysicalQuantity::Vector) ;
+    cudaDeviceBuffer<real_d> moi(numparticles,PhysicalQuantity::Scalar);
 
     // Domain Buffers
     cudaDeviceBuffer<u_int> cell_list(numcells,PhysicalQuantity::Scalar);
@@ -104,8 +105,8 @@ int main(int argc, char *argv[]){
     const_args[11] = gx;
     const_args[12] = gy;
     const_args[13] = gz;
-    const_args[14] = 0.1;
-    const_args[15] = 0.1;
+    const_args[14] = 0.1;//kf
+    const_args[15] = 0.1;//kdt
 
     //Number of cells per dimension
     num_cells[0] = xn;
@@ -123,7 +124,7 @@ int main(int argc, char *argv[]){
     forcenew.allocateOnDevice();
     torqueold.allocateOnDevice();
     torquenew.allocateOnDevice();
-
+    moi.allocateOnDevice();
     cell_list.allocateOnDevice();
     particle_list.allocateOnDevice();
     const_args.allocateOnDevice();
@@ -145,6 +146,7 @@ int main(int argc, char *argv[]){
     forcenew.copyToDevice();
     torquenew.copyToDevice();
     torqueold.copyToDevice();
+    moi.copyToDevice();
 
     // domain buffer copied to device
     cell_list.copyToDevice();
@@ -195,12 +197,15 @@ int main(int argc, char *argv[]){
 
         u_int iter = 0 ;
 
+        //Initialize moment of inertia for all particles
+        initializeMoi<<<num_blocks,threads_per_blocks>>>(moi.devicePtr,radius.devicePtr,mass.devicePtr,numparticles);
 
         //Initialise quates for every particle
         initialiseQuats<<<num_blocks,threads_per_blocks >>>  (rotation.devicePtr,numparticles);
 
         // Initialising all the rotation for every particle
         initialiseRotation<<< num_blocks,threads_per_blocks >>>  (rotationvector.devicePtr,numparticles) ;
+
         //Create the list of neighbours for each cell depending upon the boundary conditions
         createNeighbourList<<<gridDim,blockDim>>>(neighbour_list.devicePtr,num_cells.devicePtr,reflect.devicePtr);
 
@@ -212,10 +217,10 @@ int main(int argc, char *argv[]){
                                                              numparticles,position.devicePtr,num_cells.devicePtr);
 
         //Calculate initial forces
-        calcForces<<<num_blocks,threads_per_blocks>>>(forcenew.devicePtr, position.devicePtr,radius.devicePtr, \
-                                                     const_args.devicePtr, num_cells.devicePtr, reflect.devicePtr,\
-                                                     cell_list.devicePtr, particle_list.devicePtr,neighbour_list.devicePtr, \
-                                                     velocity.devicePtr, a_velocity.devicePtr, numparticles);
+        calcForces<<<num_blocks,threads_per_blocks>>>(forcenew.devicePtr,torquenew.devicePtr,position.devicePtr,mass.devicePtr,radius.devicePtr, \
+                                                     const_args.devicePtr,num_cells.devicePtr, reflect.devicePtr,\
+                                                     cell_list.devicePtr,particle_list.devicePtr,neighbour_list.devicePtr, \
+                                                     velocity.devicePtr,a_velocity.devicePtr, numparticles);
 
 
         //Start time stepping now
@@ -228,7 +233,7 @@ int main(int argc, char *argv[]){
                 forceold.copyToHost();
                 position.copyToHost();
                 velocity.copyToHost();
-                writer.writeVTKOutput(mass,radius,position,velocity,numparticles);
+                writer.writeVTKOutput(mass,radius,position,velocity,rotationvector,numparticles);
             }
 
             // Update the Position
@@ -236,21 +241,31 @@ int main(int argc, char *argv[]){
                                                               mass.devicePtr,numparticles,timestep_length,\
                                                               const_args.devicePtr,reflect.devicePtr);
 
+            //update angular velocity
+            updateAngVelocity<<<num_blocks,threads_per_blocks>>>(a_velocity.devicePtr,moi.devicePtr,torquenew.devicePtr,\
+                                                                 timestep_length,numparticles);
+
+            //update quaternion
+            updateQuat<<<num_blocks,threads_per_blocks>>>(rotation.devicePtr,a_velocity.devicePtr,timestep_length,numparticles);
+
+            //apply quaternion to the rotation
+            applyQuats<<<num_blocks,threads_per_blocks>>>(rotationvector.devicePtr,rotation.devicePtr,numparticles);
+
             // Copy the forces
-            copyForces<<<num_blocks,threads_per_blocks>>>(forceold.devicePtr,forcenew.devicePtr, numparticles);
+            copyForces<<<num_blocks,threads_per_blocks>>>(forceold.devicePtr,forcenew.devicePtr, \
+                                                          torqueold.devicePtr,torquenew.devicePtr, numparticles);
 
             //Ready the particle and cell list for updates
             initializeParticleList<<<num_blocks,threads_per_blocks>>>(particle_list.devicePtr,numparticles);
             //Reset the linked lists to 0
             setToZero3D<<<gridDim,blockDim>>>(cell_list.devicePtr,num_cells.devicePtr);
-
             //Update the linked list
             updateListsParPar<<<num_blocks,threads_per_blocks>>>(cell_list.devicePtr,particle_list.devicePtr,const_args.devicePtr,\
                                                                  numparticles,position.devicePtr,num_cells.devicePtr);
 
 
             //Calculate forces
-            calcForces<<<num_blocks,threads_per_blocks>>>(forcenew.devicePtr, position.devicePtr,radius.devicePtr, \
+            calcForces<<<num_blocks,threads_per_blocks>>>(forcenew.devicePtr,torquenew.devicePtr, position.devicePtr,mass.devicePtr,radius.devicePtr, \
                                                          const_args.devicePtr, num_cells.devicePtr, reflect.devicePtr,\
                                                          cell_list.devicePtr, particle_list.devicePtr,neighbour_list.devicePtr,\
                                                          velocity.devicePtr, a_velocity.devicePtr, numparticles);

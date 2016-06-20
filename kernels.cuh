@@ -15,6 +15,16 @@ __device__ void crossProd(const real_d *vec1, real_d *vec2){
     }
 }
 
+//quat product of 2 quaternions and store them in the first vector
+__device__ void quatProd(real_d *q1, const real_d* q2){
+   real_d tq[4] = {q1[0],q1[1],q1[2],q1[3]};
+
+   q1[0] = tq[0]*q2[0]-tq[1]*q2[1]-tq[2]*q2[2]-tq[3]*q2[3];
+   q1[1] = tq[0]*q2[1]+tq[1]*q2[0]+tq[2]*q2[3]-tq[3]*q2[2];
+   q1[2] = tq[0]*q2[2]-tq[1]*q2[3]+tq[2]*q2[0]+tq[3]*q2[1];
+   q1[3] = tq[0]*q2[3]+tq[1]*q2[2]-tq[2]*q2[1]-tq[3]*q2[0];
+}
+
 //add 2 vectors of dimension 3 and store in the first
 __device__ void add(real_d *vec1, const real_d *vec2){
     for(int i=0;i<3;i++){
@@ -88,11 +98,11 @@ __device__ u_int giveCellID(const real_d *position, const real_d *const_args, \
                             const int *num_cells, u_int *id, const  u_int idx){
     u_int vidx = idx*3;
 
-    id[0] = position[vidx]/const_args[6];
+    id[0] = (position[vidx]-const_args[0])/const_args[6];
 
-    id[1] = position[vidx+1]/const_args[7];
+    id[1] = (position[vidx+1]-const_args[2])/const_args[7];
 
-    id[2] = position[vidx+2]/const_args[8];
+    id[2] = (position[vidx+2]-const_args[4])/const_args[8];
 
     u_int cell_id = globalID(id[0],id[1],id[2],num_cells);
 
@@ -205,6 +215,9 @@ __device__ void addForces(const u_int id_a, const u_int id_b, const real_d *posi
     //Finally add the computed forces
     add(&force[id_a*3],force_t);
     add(&force[id_a*3],force_n);
+
+    //Return tangential force to temp_vel for torque calculation
+    equalize(temp_vel,force_t);
 }
 
 __device__ void findContactVelocity(u_int idx, u_int curr_id, real_d *temp_pos1, \
@@ -321,6 +334,63 @@ __global__ void initialiseQuats(real_d * rotation,const u_int numparticles  ){
     }
 }
 
+//Initialize the moment of inertia buffer
+__global__ void initializeMoi(real_d *moi, const real_d *radius, const real_d *mass, const u_int numparticles){
+    u_int idx = threadIdx.x+ blockIdx.x*blockDim.x;
+
+    if(idx < numparticles && !isinf(radius[idx])){
+        moi[idx] = 0.4*mass[idx]*radius[idx]*radius[idx];
+    }
+}
+
+//Update the angular velocity
+__global__ void updateAngVelocity(real_d *a_velocity,const real_d *moi,const real_d *torque,\
+                                  const real_d time_step, const u_int numparticles){
+    u_int idx = threadIdx.x+ blockIdx.x*blockDim.x;
+
+    if(idx < numparticles && moi[idx] != 0){
+        for(int i=0;i<3;i++){
+            a_velocity[idx*3+i] += time_step*(torque[idx*3+i])/moi[idx];
+        }
+    }
+
+}
+
+//Update the quaternion
+__global__ void updateQuat(real_d *rotation,real_d *a_velocity,const real_d time_step, const real_d numparticles){
+    u_int idx = threadIdx.x+blockIdx.x*blockDim.x;
+
+
+    if(idx < numparticles){
+        real_d omg_q[4] = {0.0,a_velocity[idx*3],a_velocity[idx*3+1],a_velocity[idx*3+2]};
+        quatProd(omg_q,&rotation[idx*4]);//quaternion: (0,w)*q stored in omg_q
+        for(int i=0;i<4;i++){
+            rotation[idx*4+i] += 0.5*time_step*omg_q[i];
+        }
+    }
+}
+
+//Apply quaternion to find the rotation
+__global__ void applyQuats(real_d *rotvec, const real_d *rot, const u_int numparticles){
+   u_int idx = threadIdx.x+blockIdx.x*blockDim.x;
+
+
+   if(idx < numparticles){
+       real_d qt[4] = {rot[4*idx],-1.0*rot[4*idx+1],-1.0*rot[4*idx+2],-1.0*rot[4*idx+3]};
+       real_d q[4] = {rot[4*idx],rot[4*idx+1],rot[4*idx+2],rot[4*idx+3]};
+       real_d r[4] = {0.0,rotvec[3*idx],rotvec[3*idx+1],rotvec[3*idx+2]};
+
+       quatProd(r,qt);
+       quatProd(q,r);
+
+       for(int i=0;i<3;i++){
+           rotvec[3*idx+i] = q[i+1];
+       }
+
+   }
+}
+
+//Update quaternions
 // Update the list particle parallely
 __global__ void updateListsParPar(u_int * cell_list, u_int * particle_list, const real_d  * const_args, const u_int num_particles ,const  real_d * position, const int * num_cells  ) {
 
@@ -335,13 +405,13 @@ __global__ void updateListsParPar(u_int * cell_list, u_int * particle_list, cons
         real_d pos[3] = {position[vidxp], position[vidxp+1], position[vidxp+2] } ;
 
         // Find the ... cordinate of the cell it lies and register it their using atomic operations
-        u_int i = pos[0] / const_args[6] ;
-        u_int j = pos[1] / const_args[7] ;
-        u_int k = pos[2]/ const_args[8];
+        u_int i = (pos[0]-const_args[0]) / const_args[6] ;
+        u_int j = (pos[1]-const_args[2]) / const_args[7] ;
+        u_int k = (pos[2]-const_args[4])/ const_args[8];
 
         // Find the global id of the cell
         u_int cellindex = globalID(i,j,k,num_cells) ;
-
+//	printf("%f %f %f %u\n",pos[0],pos[1],pos[2],idx);
         // See whether that cell has already has some master particle , and if not assign itself to it and
         u_int old = atomicExch(&cell_list[cellindex] ,idx+1);
 
@@ -349,19 +419,10 @@ __global__ void updateListsParPar(u_int * cell_list, u_int * particle_list, cons
     }
 }
 
-//Initialize quaternion (Particle parallel)
-__global__  void initializeQuat(real_d  *quat_buffer, u_int size){
-    u_int idx = threadIdx.x+blockDim.x*blockIdx.x;
-
-    if(idx <  size){
-        quat_buffer[4*idx] = 1;
-        quat_buffer[4*idx+1] = quat_buffer[4*idx+2] = quat_buffer[4*idx+3] = 0.0;
-    }
-}
 
 //Contact detection and force calculation
-__global__ void calcForces(real_d *force, const real_d *position,const real_d *radius, \
-                           const real_d *const_args, const int* num_cells, const u_int *reflect,\
+__global__ void calcForces(real_d *force, real_d *torque, const real_d *position,const real_d *mass, \
+                           const real_d *radius, const real_d *const_args, const int* num_cells, const u_int *reflect,\
                            const u_int *cell_list, const u_int *particle_list, const int* neighbour_list, \
                            const real_d *velocity, const real_d *a_velocity, const u_int numparticles){
 
@@ -380,16 +441,20 @@ __global__ void calcForces(real_d *force, const real_d *position,const real_d *r
 
     real_d gravity[3] = {const_args[11],const_args[12],const_args[13]};
     real_d temp_vel[3],temp_pos1[3],temp_pos2[3],temp_force[3],pen_depth;
+    real_d cont_pos[3],tang_force[3];
 
     bool in_contact;
     bool which_boundary[6];
 
     u_int bound_id = 0;
-    if(idx < numparticles){
+    if(idx < numparticles && !isinf(mass[idx])){
         force[idx*3] = gravity[0];
         force[idx*3+1] = gravity[1];
         force[idx*3+2] = gravity[2];
 
+        torque[idx*3] = 0.0;
+        torque[idx*3+1] = 0.0;
+        torque[idx*3+2] = 0.0;
         cell_id = giveCellID(position,const_args,num_cells,id,idx);
 
         n_id = 26*cell_id;//for indexing the neighbour list
@@ -405,7 +470,7 @@ __global__ void calcForces(real_d *force, const real_d *position,const real_d *r
                    //Detect contact with wall
                    pen_depth = radius[idx]-abs(wall_pos-position[idx*3+i]);
                    if(pen_depth < 0){
-
+                      //  printf("Contact detected\n");
                        //(x - x_a)
                        temp_pos1[i] = (wall_pos-position[idx*3+i]);temp_pos1[(i+1)%3]=0;temp_pos1[(i+2)%3]=0;
                        equalize(temp_pos2,temp_pos1);
@@ -443,7 +508,7 @@ __global__ void calcForces(real_d *force, const real_d *position,const real_d *r
 
                        //store F_t in temp_pos1
                        if(norm(temp_pos1) != 0){
-                        scalMult(temp_pos1,(1.0/norm(temp_pos1))*mag);
+                        scalMult(temp_pos1,(mag/norm(temp_pos1)));
                        }
 
                        //add tangential forces
@@ -451,7 +516,13 @@ __global__ void calcForces(real_d *force, const real_d *position,const real_d *r
                        //add normal forces
                        add(&force[idx*3],temp_force);
 
-
+                       //Torque Calculation
+                       for(int j=0;j<3;j++){
+                           cont_pos[j] = (j == i)?(wall_pos-position[idx*3+j]):(-1.0*position[idx*3+j]);
+                       }
+                       equalize(tang_force,temp_pos1);
+                       crossProd(cont_pos,tang_force);
+                       add(torque,tang_force);
                    }
 
                 }
@@ -475,6 +546,17 @@ __global__ void calcForces(real_d *force, const real_d *position,const real_d *r
                        equalize(temp_vel,temp_pos1);
                        addForces(idx,curr_id,position,force,temp_vel,pen_depth,const_args);
 
+                       //torque calculation
+                       for(int j=0;j<3;j++){
+                           cont_pos[j] = position[curr_id*3+j]\
+                                         +(radius[curr_id]/\
+                                         (radius[curr_id]+radius[idx]))*(position[curr_id*3+j]-\
+                                                                         position[idx*3+j]);
+                       }
+
+                       equalize(tang_force,temp_vel);
+                       crossProd(cont_pos,tang_force);
+                       add(torque,tang_force);
                    }
                }
 
@@ -495,6 +577,17 @@ __global__ void calcForces(real_d *force, const real_d *position,const real_d *r
                     equalize(temp_vel,temp_pos1);
                     addForces(idx,curr_id,position,force,temp_vel,pen_depth,const_args);
 
+                    //torque calculation
+                    for(int j=0;j<3;j++){
+                        cont_pos[j] = position[curr_id*3+j]\
+                                      +(radius[curr_id]/\
+                                      (radius[curr_id]+radius[idx]))*(position[curr_id*3+j]-\
+                                                                      position[idx*3+j]);
+                    }
+
+                    equalize(tang_force,temp_vel);
+                    crossProd(cont_pos,tang_force);
+                    add(torque,tang_force);
                 }
             }
         }
@@ -511,22 +604,26 @@ __global__ void updatePosition(const real_d *force,real_d *position,const real_d
 
     u_int idx = threadIdx.x + blockIdx.x * blockDim.x ;
 
-    if(idx < numparticles ){
-
+    if(idx < numparticles && !isinf(mass[idx])){
         u_int vidx = idx * 3 ;
+
+	//printf("%f %f %f %f\n",position[vidx],position[vidx+1],position[vidx+2],mass[idx]);
 
         position[vidx]   += (timestep * velocity[vidx] ) + ( (force[vidx] * timestep * timestep) / ( 2.0 * mass[idx]) ) ;
         position[vidx+1] += (timestep * velocity[vidx+1] ) + ( (force[vidx+1] * timestep * timestep) / ( 2.0 * mass[idx]) ) ;
         position[vidx+2] += (timestep * velocity[vidx+2] ) + ( (force[vidx+2] * timestep * timestep) / ( 2.0 * mass[idx]) ) ;
 
+	printf("%f %f %f %f\n",force[vidx],force[vidx+1],force[vidx+2],mass[idx]);
+
         //Check for boundary conditions and correct the positions accordingly
         positionCorrect(&position[vidx],const_args,reflect);
-
+	//printf("%f %f %f %f\n",position[vidx],position[vidx+1],position[vidx+2],mass[idx]);
     }
 }
 
 // Copying the forces
-__global__ void copyForces(real_d * fold,real_d * fnew, const u_int numparticles) {
+__global__ void copyForces(real_d * fold,real_d * fnew, real_d *told, real_d *tnew,\
+                           const u_int numparticles) {
 
     u_int idx = threadIdx.x + blockIdx.x * blockDim.x ;
 
@@ -535,6 +632,7 @@ __global__ void copyForces(real_d * fold,real_d * fnew, const u_int numparticles
 
         for(u_int i =vidxp ; i < vidxp+3; ++i ){
             fold[i] = fnew[i] ;
+            told[i] = told[i];
         }
     }
 }

@@ -1,4 +1,6 @@
 #include "Parser.h"
+#include <limits>
+#include <string>
 
 //Read parameter names, their values and store in in a string to string map
 void Parser::readParameters(){
@@ -45,8 +47,17 @@ void Parser::readInputConfiguration(){
         input_file>>this->num_particles;
     }
 
+    std::string inf_checker;
     for(int i=0;i<this->num_particles;i++){
-        input_file>>mass>>radius>>pos_x>>pos_y>>pos_z>>vel_x>>vel_y>>vel_z;
+        //Checking if mass is infinity
+        input_file>>inf_checker;
+        if(inf_checker == "inf"){
+            mass = std::numeric_limits<double>::infinity();
+        }
+        else{
+            mass = std::stod(inf_checker);
+        }
+        input_file>>radius>>pos_x>>pos_y>>pos_z>>vel_x>>vel_y>>vel_z;
         (this->mass).push_back(mass);
         (this->radius).push_back(radius);
         (this->pos).push_back(pos_x);
