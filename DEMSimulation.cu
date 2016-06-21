@@ -200,7 +200,7 @@ int main(int argc, char *argv[]){
         //Initialize moment of inertia for all particles
         initializeMoi<<<num_blocks,threads_per_blocks>>>(moi.devicePtr,radius.devicePtr,mass.devicePtr,numparticles);
 
-        //Initialise quates for every particle
+        //Initialise quats for every particle
         initialiseQuats<<<num_blocks,threads_per_blocks >>>  (rotation.devicePtr,numparticles);
 
         // Initialising all the rotation for every particle
@@ -221,6 +221,7 @@ int main(int argc, char *argv[]){
                                                      const_args.devicePtr,num_cells.devicePtr, reflect.devicePtr,\
                                                      cell_list.devicePtr,particle_list.devicePtr,neighbour_list.devicePtr, \
                                                      velocity.devicePtr,a_velocity.devicePtr, numparticles);
+
 
 
         //Start time stepping now

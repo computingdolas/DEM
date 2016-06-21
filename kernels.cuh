@@ -80,7 +80,7 @@ __device__ bool isBoundaryCell(const u_int cell_id, const int *num_cells, bool *
             which_boundary[2*i+1] = false;
         }
         else if(ids[i] == num_cells[i]-1){
-            which_boundary[2*i] = true;
+            which_boundary[2*i] = false;
             which_boundary[2*i+1] = true;
         }
         else{
@@ -191,8 +191,10 @@ __device__ void addForces(const u_int id_a, const u_int id_b, const real_d *posi
     real_d norm_normal = norm(normal);
 
     //normal[] contains the unit vector along the normal
-    scalMult(normal,(1.0/norm_normal));
-
+    if(norm_normal != 0){
+        //printf("norm_normal not 0\n");
+        scalMult(normal,(1.0/norm_normal));
+    }
     equalize(vel_n,normal);
     real_d v_n = dotProd(normal,temp_vel);
     scalMult(vel_n,v_n);//vel_n is the normal component of velocity
@@ -209,7 +211,12 @@ __device__ void addForces(const u_int id_a, const u_int id_b, const real_d *posi
     //printf("ks, kdn, p: %f %f %f",const_args[9],const_args[10],pen_depth);
 
     real_d ft = fmin(norm(force_n)*kf,kdt*norm(vel_t));
-    scalMult(vel_t,(ft/norm(vel_t)));//vel_t now contains the tangential component of force
+
+    if(norm(vel_t)  != 0){
+       //printf("norm vel_t %f\n",norm(vel_t));
+        scalMult(vel_t,(ft/norm(vel_t)));//vel_t now contains the tangential component of force
+    }
+
     equalize(force_t,vel_t);//set force_t = vel_t
 
     //Finally add the computed forces
@@ -218,6 +225,7 @@ __device__ void addForces(const u_int id_a, const u_int id_b, const real_d *posi
 
     //Return tangential force to temp_vel for torque calculation
     equalize(temp_vel,force_t);
+    //printf("%f %f %f\n",force[id_a*3],force[id_a*3+1],force[id_a*3+2]);
 }
 
 __device__ void findContactVelocity(u_int idx, u_int curr_id, real_d *temp_pos1, \
@@ -257,7 +265,6 @@ __device__ void positionCorrect(real_d *myposition, const real_d *const_args, co
     }
 }
 
-//Initialize particle list
 __global__ void initializeParticleList(u_int *particle_list, const u_int numparticles){
     u_int idx = blockDim.x*blockIdx.x+threadIdx.x;
     if(idx < numparticles){
@@ -316,6 +323,8 @@ __global__ void initialiseRotation(real_d  * rotationVector,const u_int numparti
         rotationVector[vidx] = 1.0;
         rotationVector[vidx +1] = 0.0 ;
         rotationVector[vidx +2] = 0.0 ;
+
+
     }
 
 }
@@ -331,6 +340,8 @@ __global__ void initialiseQuats(real_d * rotation,const u_int numparticles  ){
         rotation[vidx+1] = 0.0 ;
         rotation[vidx +2] = 0.0 ;
         rotation[vidx +3] = 0.0 ;
+
+
     }
 }
 
@@ -340,6 +351,7 @@ __global__ void initializeMoi(real_d *moi, const real_d *radius, const real_d *m
 
     if(idx < numparticles && !isinf(radius[idx])){
         moi[idx] = 0.4*mass[idx]*radius[idx]*radius[idx];
+
     }
 }
 
@@ -411,7 +423,7 @@ __global__ void updateListsParPar(u_int * cell_list, u_int * particle_list, cons
 
         // Find the global id of the cell
         u_int cellindex = globalID(i,j,k,num_cells) ;
-//	printf("%f %f %f %u\n",pos[0],pos[1],pos[2],idx);
+      //printf("%f %f %f %u\n",pos[0],pos[1],pos[2],cellindex);
         // See whether that cell has already has some master particle , and if not assign itself to it and
         u_int old = atomicExch(&cell_list[cellindex] ,idx+1);
 
@@ -419,7 +431,7 @@ __global__ void updateListsParPar(u_int * cell_list, u_int * particle_list, cons
     }
 }
 
-
+//Wall contact forces
 //Contact detection and force calculation
 __global__ void calcForces(real_d *force, real_d *torque, const real_d *position,const real_d *mass, \
                            const real_d *radius, const real_d *const_args, const int* num_cells, const u_int *reflect,\
@@ -463,14 +475,13 @@ __global__ void calcForces(real_d *force, real_d *torque, const real_d *position
         if(isBoundaryCell(cell_id,num_cells,which_boundary)){
             real_d wall_pos,vn,mag;
             for(int i=0;i<3;i++){
-                if(which_boundary[2*i] && reflect[i]){
+                if((which_boundary[2*i] || which_boundary[2*i+1]) && reflect[i]){
                    bound_id = which_boundary[2*i+1];
                    wall_pos = const_args[2*i+bound_id];//position of the wall
 
                    //Detect contact with wall
                    pen_depth = radius[idx]-abs(wall_pos-position[idx*3+i]);
                    if(pen_depth < 0){
-                      //  printf("Contact detected\n");
                        //(x - x_a)
                        temp_pos1[i] = (wall_pos-position[idx*3+i]);temp_pos1[(i+1)%3]=0;temp_pos1[(i+2)%3]=0;
                        equalize(temp_pos2,temp_pos1);
@@ -507,12 +518,14 @@ __global__ void calcForces(real_d *force, real_d *torque, const real_d *position
                        mag =  fmin(const_args[14]*norm(temp_pos1),const_args[15]*norm(temp_force));
 
                        //store F_t in temp_pos1
-                       if(norm(temp_pos1) != 0){
+                       if(norm(temp_pos1) != 0.0){
                         scalMult(temp_pos1,(mag/norm(temp_pos1)));
                        }
 
+
                        //add tangential forces
                        add(&force[idx*3],temp_pos1);
+                       //printf("%f %f %f\n",temp_pos1);
                        //add normal forces
                        add(&force[idx*3],temp_force);
 
@@ -564,6 +577,7 @@ __global__ void calcForces(real_d *force, real_d *torque, const real_d *position
             count++;
         }
 
+
         //Now iterate through own list
         head_id = cell_list[cell_id]-1;
         for(int curr_id = head_id;curr_id != -1;curr_id  = particle_list[curr_id]-1){
@@ -613,8 +627,8 @@ __global__ void updatePosition(const real_d *force,real_d *position,const real_d
         position[vidx+1] += (timestep * velocity[vidx+1] ) + ( (force[vidx+1] * timestep * timestep) / ( 2.0 * mass[idx]) ) ;
         position[vidx+2] += (timestep * velocity[vidx+2] ) + ( (force[vidx+2] * timestep * timestep) / ( 2.0 * mass[idx]) ) ;
 
-	printf("%f %f %f %f\n",force[vidx],force[vidx+1],force[vidx+2],mass[idx]);
-
+    //printf("%f %f %f %f\n",force[vidx],force[vidx+1],force[vidx+2],mass[idx]);
+        // printf("%f %f %f\n",force[idx*3],force[idx*3+1],force[idx*3+2]);
         //Check for boundary conditions and correct the positions accordingly
         positionCorrect(&position[vidx],const_args,reflect);
 	//printf("%f %f %f %f\n",position[vidx],position[vidx+1],position[vidx+2],mass[idx]);
