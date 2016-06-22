@@ -225,7 +225,7 @@ __device__ void addForces(const u_int id_a, const u_int id_b, const real_d *posi
 
     //Return tangential force to temp_vel for torque calculation
     equalize(temp_vel,force_t);
-    //printf("%f %f %f\n",force[id_a*3],force[id_a*3+1],force[id_a*3+2]);
+   // printf("%f %f %f %u\n",position[id_a*3],position[id_a*3+1],position[id_a*3+2],id_a);
 }
 
 __device__ void findContactVelocity(u_int idx, u_int curr_id, real_d *temp_pos1, \
@@ -436,7 +436,7 @@ __global__ void updateListsParPar(u_int * cell_list, u_int * particle_list, cons
 __global__ void calcForces(real_d *force, real_d *torque, const real_d *position,const real_d *mass, \
                            const real_d *radius, const real_d *const_args, const int* num_cells, const u_int *reflect,\
                            const u_int *cell_list, const u_int *particle_list, const int* neighbour_list, \
-                           const real_d *velocity, const real_d *a_velocity, const u_int numparticles){
+                           const real_d *velocity, const real_d *a_velocity, const u_int numparticles, int iter){
 
     u_int idx = threadIdx.x+blockDim.x*blockIdx.x;
 
@@ -476,6 +476,7 @@ __global__ void calcForces(real_d *force, real_d *torque, const real_d *position
             real_d wall_pos,vn,mag;
             for(int i=0;i<3;i++){
                 if((which_boundary[2*i] || which_boundary[2*i+1]) && reflect[i]){
+
                    bound_id = which_boundary[2*i+1];
                    wall_pos = const_args[2*i+bound_id];//position of the wall
 
@@ -553,7 +554,9 @@ __global__ void calcForces(real_d *force, real_d *torque, const real_d *position
                    //Contact detection
                    in_contact =  contactDetect(idx,curr_id,position,radius,&pen_depth);
                    if(in_contact){
+                       printf("contact detected\n");
                        //contact velocity is computed and stored in temp_pos1
+
                        findContactVelocity(idx,curr_id,temp_pos1,temp_pos2,position,\
                                            velocity,radius,a_velocity);
                        equalize(temp_vel,temp_pos1);
@@ -585,10 +588,14 @@ __global__ void calcForces(real_d *force, real_d *torque, const real_d *position
                 //Contact detection
                 in_contact =  contactDetect(idx,curr_id,position,radius,&pen_depth);
                 if(in_contact){
+                    // printf("contact detected %u %u\n",idx,curr_id);
                     //contact velocity is computed and stored in temp_pos1
+                    printf("%f %f %f %u %d\n",position[idx*3],position[idx*3+1],position[idx*3+2],idx,iter);
                     findContactVelocity(idx,curr_id,temp_pos1,temp_pos2,position,\
                                         velocity,radius,a_velocity);
                     equalize(temp_vel,temp_pos1);
+                   // printf("%f  %f %f\n",temp_pos1[0],temp_pos1[1],temp_pos1[2]);
+
                     addForces(idx,curr_id,position,force,temp_vel,pen_depth,const_args);
 
                     //torque calculation

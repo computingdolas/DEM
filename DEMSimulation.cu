@@ -220,7 +220,7 @@ int main(int argc, char *argv[]){
         calcForces<<<num_blocks,threads_per_blocks>>>(forcenew.devicePtr,torquenew.devicePtr,position.devicePtr,mass.devicePtr,radius.devicePtr, \
                                                      const_args.devicePtr,num_cells.devicePtr, reflect.devicePtr,\
                                                      cell_list.devicePtr,particle_list.devicePtr,neighbour_list.devicePtr, \
-                                                     velocity.devicePtr,a_velocity.devicePtr, numparticles);
+                                                     velocity.devicePtr,a_velocity.devicePtr, numparticles,iter);
 
 
 
@@ -269,7 +269,7 @@ int main(int argc, char *argv[]){
             calcForces<<<num_blocks,threads_per_blocks>>>(forcenew.devicePtr,torquenew.devicePtr, position.devicePtr,mass.devicePtr,radius.devicePtr, \
                                                          const_args.devicePtr, num_cells.devicePtr, reflect.devicePtr,\
                                                          cell_list.devicePtr, particle_list.devicePtr,neighbour_list.devicePtr,\
-                                                         velocity.devicePtr, a_velocity.devicePtr, numparticles);
+                                                         velocity.devicePtr, a_velocity.devicePtr, numparticles,iter);
 
 
             // Update the velocity
