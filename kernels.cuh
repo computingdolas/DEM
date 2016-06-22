@@ -225,7 +225,8 @@ __device__ void addForces(const u_int id_a, const u_int id_b, const real_d *posi
 
     //Return tangential force to temp_vel for torque calculation
     equalize(temp_vel,force_t);
-   // printf("%f %f %f %u\n",position[id_a*3],position[id_a*3+1],position[id_a*3+2],id_a);
+    //printf("Normal force on %u is %f %f %f\n",id_a,force_n[0],force_n[1],force_n[2]);
+
 }
 
 __device__ void findContactVelocity(u_int idx, u_int curr_id, real_d *temp_pos1, \
@@ -240,16 +241,25 @@ __device__ void findContactVelocity(u_int idx, u_int curr_id, real_d *temp_pos1,
 
      //find contact velocity
      subtract(temp_pos2,temp_pos1); // x_b-x
-     scalMult(temp_pos1,-1.0);//x-x_b
+     scalMult(temp_pos2,-1.0);//x-x_b
      subtract(temp_pos1,&position[3*idx]);//x - x_a
+
+     //printf("%f  %f %f %u\n",a_velocity[idx*3+0],a_velocity[idx*3+1],a_velocity[idx*3+2],idx);
+     //printf("%f  %f %f %u\n",a_velocity[curr_id*3+0],a_velocity[curr_id*3+1],a_velocity[curr_id*3+2],idx);
 
      crossProd(&a_velocity[idx*3],temp_pos1);//w_a*(x-x_a)
      crossProd(&a_velocity[curr_id*3],temp_pos2);//w_b*(x-x_b)
 
+     //printf("%f  %f %f %u\n",temp_pos1[0],temp_pos1[1],temp_pos1[2],idx);
+     //printf("%f  %f %f %u\n",temp_pos2[0],temp_pos2[1],temp_pos2[2],idx);
+     //printf("\n");
+
      add(temp_pos1,&velocity[3*idx]);//v_a + ....
      add(temp_pos2,&velocity[3*curr_id]);//v_b+.....
 
+
      subtract(temp_pos1,temp_pos2);//contact velocity is stored in temp_pos1
+     //printf("%f  %f %f\n",temp_pos1[0],temp_pos1[1],temp_pos1[2]);
 }
 
 __device__ void positionCorrect(real_d *myposition, const real_d *const_args, const u_int *reflect){
@@ -364,6 +374,7 @@ __global__ void updateAngVelocity(real_d *a_velocity,const real_d *moi,const rea
         for(int i=0;i<3;i++){
             a_velocity[idx*3+i] += time_step*(torque[idx*3+i])/moi[idx];
         }
+      //printf("%f %f %f %u \n",torque[idx*3],torque[idx*3+1],torque[idx*3+2],idx);
     }
 
 }
@@ -378,7 +389,9 @@ __global__ void updateQuat(real_d *rotation,real_d *a_velocity,const real_d time
         quatProd(omg_q,&rotation[idx*4]);//quaternion: (0,w)*q stored in omg_q
         for(int i=0;i<4;i++){
             rotation[idx*4+i] += 0.5*time_step*omg_q[i];
+
         }
+       // printf("%f %u\n",rotation[idx*4+3],idx);
     }
 }
 
@@ -425,6 +438,7 @@ __global__ void updateListsParPar(u_int * cell_list, u_int * particle_list, cons
         u_int cellindex = globalID(i,j,k,num_cells) ;
       //printf("%f %f %f %u\n",pos[0],pos[1],pos[2],cellindex);
         // See whether that cell has already has some master particle , and if not assign itself to it and
+        //printf("%u %u\n",cellindex,idx);
         u_int old = atomicExch(&cell_list[cellindex] ,idx+1);
 
         particle_list[idx] = old ;
@@ -472,7 +486,7 @@ __global__ void calcForces(real_d *force, real_d *torque, const real_d *position
         n_id = 26*cell_id;//for indexing the neighbour list
 
         //Check contact with walls and add forces accordingly
-        if(isBoundaryCell(cell_id,num_cells,which_boundary)){
+       if(isBoundaryCell(cell_id,num_cells,which_boundary)){
             real_d wall_pos,vn,mag;
             for(int i=0;i<3;i++){
                 if((which_boundary[2*i] || which_boundary[2*i+1]) && reflect[i]){
@@ -532,11 +546,12 @@ __global__ void calcForces(real_d *force, real_d *torque, const real_d *position
 
                        //Torque Calculation
                        for(int j=0;j<3;j++){
-                           cont_pos[j] = (j == i)?(wall_pos-position[idx*3+j]):(-1.0*position[idx*3+j]);
+                           cont_pos[j] = (j == i)?(wall_pos-position[idx*3+j]):(0);
                        }
                        equalize(tang_force,temp_pos1);
+
                        crossProd(cont_pos,tang_force);
-                       add(torque,tang_force);
+                       add(&torque[idx*3],tang_force);
                    }
 
                 }
@@ -554,7 +569,7 @@ __global__ void calcForces(real_d *force, real_d *torque, const real_d *position
                    //Contact detection
                    in_contact =  contactDetect(idx,curr_id,position,radius,&pen_depth);
                    if(in_contact){
-                       printf("contact detected\n");
+                       //printf("contact detected\n");
                        //contact velocity is computed and stored in temp_pos1
 
                        findContactVelocity(idx,curr_id,temp_pos1,temp_pos2,position,\
@@ -568,11 +583,13 @@ __global__ void calcForces(real_d *force, real_d *torque, const real_d *position
                                          +(radius[curr_id]/\
                                          (radius[curr_id]+radius[idx]))*(position[curr_id*3+j]-\
                                                                          position[idx*3+j]);
+
+                           cont_pos[j] -= position[idx*3+j];
                        }
 
                        equalize(tang_force,temp_vel);
                        crossProd(cont_pos,tang_force);
-                       add(torque,tang_force);
+                       add(&torque[idx*3],tang_force);
                    }
                }
 
@@ -590,11 +607,11 @@ __global__ void calcForces(real_d *force, real_d *torque, const real_d *position
                 if(in_contact){
                     // printf("contact detected %u %u\n",idx,curr_id);
                     //contact velocity is computed and stored in temp_pos1
-                    printf("%f %f %f %u %d\n",position[idx*3],position[idx*3+1],position[idx*3+2],idx,iter);
+                    //printf("%f %f %f %u %d\n",position[idx*3],position[idx*3+1],position[idx*3+2],idx,iter);
                     findContactVelocity(idx,curr_id,temp_pos1,temp_pos2,position,\
                                         velocity,radius,a_velocity);
                     equalize(temp_vel,temp_pos1);
-                   // printf("%f  %f %f\n",temp_pos1[0],temp_pos1[1],temp_pos1[2]);
+                   // printf("%f  %f %f %u\n",temp_vel[0],temp_vel[1],temp_vel[2],idx);
 
                     addForces(idx,curr_id,position,force,temp_vel,pen_depth,const_args);
 
@@ -604,11 +621,15 @@ __global__ void calcForces(real_d *force, real_d *torque, const real_d *position
                                       +(radius[curr_id]/\
                                       (radius[curr_id]+radius[idx]))*(position[curr_id*3+j]-\
                                                                       position[idx*3+j]);
+
+                        cont_pos[j] -= position[idx*3+j];
                     }
+
 
                     equalize(tang_force,temp_vel);
                     crossProd(cont_pos,tang_force);
-                    add(torque,tang_force);
+                    add(&torque[idx*3],tang_force);
+                   // printf("Tang force on %u is %f %f %f\n",idx,torque[0],torque[1],torque[2]);
                 }
             }
         }

@@ -234,6 +234,7 @@ int main(int argc, char *argv[]){
                 forceold.copyToHost();
                 position.copyToHost();
                 velocity.copyToHost();
+                rotationvector.copyToHost();
                 writer.writeVTKOutput(mass,radius,position,velocity,rotationvector,numparticles);
             }
 
