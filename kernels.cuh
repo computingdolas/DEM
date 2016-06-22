@@ -436,7 +436,7 @@ __global__ void updateListsParPar(u_int * cell_list, u_int * particle_list, cons
 
         // Find the global id of the cell
         u_int cellindex = globalID(i,j,k,num_cells) ;
-      //printf("%f %f %f %u\n",pos[0],pos[1],pos[2],cellindex);
+        //printf("%f %f %f %u\n",pos[0],pos[1],pos[2],cellindex);
         // See whether that cell has already has some master particle , and if not assign itself to it and
         //printf("%u %u\n",cellindex,idx);
         u_int old = atomicExch(&cell_list[cellindex] ,idx+1);
@@ -499,6 +499,7 @@ __global__ void calcForces(real_d *force, real_d *torque, const real_d *position
                    if(pen_depth < 0){
                        //(x - x_a)
                        temp_pos1[i] = (wall_pos-position[idx*3+i]);temp_pos1[(i+1)%3]=0;temp_pos1[(i+2)%3]=0;
+                       printf("%f %f %f %u  %u\n",position[idx*3],position[idx*3+1],position[idx*3+2],idx,iter);
                        equalize(temp_pos2,temp_pos1);
 
                        if(norm(temp_pos2) != 0){

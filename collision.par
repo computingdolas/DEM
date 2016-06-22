@@ -17,9 +17,9 @@ z_min                 0
 x_max                 1
 y_max                 1
 z_max                 1
-x_n                   9
-y_n                   9
-z_n                   9
+x_n                   3
+y_n                   3
+z_n                   3
 reflect_x             0
 reflect_y             0
 reflect_z             0

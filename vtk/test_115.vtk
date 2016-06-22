@@ -1,0 +1,29 @@
+# vtk DataFile Version 4.0
+hesp visualization file
+ASCII
+DATASET UNSTRUCTURED_GRID
+POINTS 3 double
+0.166 1.4218305 0
+0.833 0.97863371 0
+0.1 0.79913283 0
+CELLS 0 0
+CELL_TYPES 0
+POINT_DATA 3
+SCALARS m double
+LOOKUP_TABLE default
+1
+1
+1
+SCALARS r double
+LOOKUP_TABLE default
+0.1
+0.1
+0.1
+VECTORS v double
+0 4.123478 0
+0 0.2015348 0
+0 0.37911901 0
+VECTORS q double
+1 0 0
+1 0 0
+1 0 0
