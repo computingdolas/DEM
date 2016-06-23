@@ -17,7 +17,7 @@ int main(int argc, char *argv[]){
     Parser p(argv[1]);
     p.readParameters();
     p.readInputConfiguration();
-
+	
     //time stepping parameters
     real_d time_end = std::stod(p.params["time_end"]) ;
     real_d timestep_length = std::stod(p.params["timestep_length"]) ;
@@ -105,8 +105,8 @@ int main(int argc, char *argv[]){
     const_args[11] = gx;
     const_args[12] = gy;
     const_args[13] = gz;
-    const_args[14] = 0.1;//kf
-    const_args[15] = 0.1;//kdt
+    const_args[14] = 0.2;//kf
+    const_args[15] = 0.2;//kdt
 
     //Number of cells per dimension
     num_cells[0] = xn;

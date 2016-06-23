@@ -104,6 +104,16 @@ __device__ u_int giveCellID(const real_d *position, const real_d *const_args, \
 
     id[2] = (position[vidx+2]-const_args[4])/const_args[8];
 
+    if(id[0] == num_cells[0]){
+        id[0]--;
+    }
+    if(id[1] == num_cells[1]){
+        id[1]--;
+    }
+    if(id[2] == num_cells[2]){
+        id[2]--;
+    }
+
     u_int cell_id = globalID(id[0],id[1],id[2],num_cells);
 
     return cell_id;
@@ -264,15 +274,17 @@ __device__ void findContactVelocity(u_int idx, u_int curr_id, real_d *temp_pos1,
 
 __device__ void positionCorrect(real_d *myposition, const real_d *const_args, const u_int *reflect){
 
-    bool left,right;
+    bool left[3],right[3];
     for(int i=0;i<3;i++){
         //check if I am out of domain bounds for each dimension
-        right = myposition[i] > const_args[i*2+1];
-        left = myposition[i] < const_args[i*2];
-        if((right || left) && !reflect[i]){
-                myposition[i] += left*(const_args[2*i+1]-const_args[2*i])-right*(const_args[2*i+1]-const_args[2*i]);
+        right[i] = myposition[i] >= const_args[i*2+1];
+        left[i] = myposition[i] < const_args[i*2];
+        if((right[i] || left[i]) && !reflect[i]){
+                myposition[i] += left[i]*(const_args[2*i+1]-const_args[2*i])-right[i]*(const_args[2*i+1]-const_args[2*i]);
         }
     }
+    //printf("%f %f %f %f %f %f %d %d %d\n\n",myposition[0],myposition[1],myposition[2],const_args[1],const_args[3],\
+            const_args[5],right[0],right[1],right[2]);
 }
 
 __global__ void initializeParticleList(u_int *particle_list, const u_int numparticles){
@@ -372,7 +384,8 @@ __global__ void updateAngVelocity(real_d *a_velocity,const real_d *moi,const rea
 
     if(idx < numparticles && moi[idx] != 0){
         for(int i=0;i<3;i++){
-            a_velocity[idx*3+i] += time_step*(torque[idx*3+i])/moi[idx];
+           // a_velocity[idx*3+i] += time_step*(torque[idx*3+i])/moi[idx];
+            a_velocity[idx*3+i] = 0;
         }
       //printf("%f %f %f %u \n",torque[idx*3],torque[idx*3+1],torque[idx*3+2],idx);
     }
@@ -434,13 +447,22 @@ __global__ void updateListsParPar(u_int * cell_list, u_int * particle_list, cons
         u_int j = (pos[1]-const_args[2]) / const_args[7] ;
         u_int k = (pos[2]-const_args[4])/ const_args[8];
 
+        //printf("%f %f %f\n",pos[0],pos[1],pos[2]);
+        if(i == num_cells[0]){
+            i = i-1;
+        }
+        if(j == num_cells[1]){
+            j = j-1;
+        }
+        if(k == num_cells[2]){
+            k = k-1;
+        }
         // Find the global id of the cell
         u_int cellindex = globalID(i,j,k,num_cells) ;
-        //printf("%f %f %f %u\n",pos[0],pos[1],pos[2],cellindex);
+        //printf("%u %u %u\n",i,j,k);
         // See whether that cell has already has some master particle , and if not assign itself to it and
-        //printf("%u %u\n",cellindex,idx);
+        //printf("%f %f %f\n",pos[0],pos[1],pos[2]);
         u_int old = atomicExch(&cell_list[cellindex] ,idx+1);
-
         particle_list[idx] = old ;
     }
 }
@@ -490,17 +512,19 @@ __global__ void calcForces(real_d *force, real_d *torque, const real_d *position
             real_d wall_pos,vn,mag;
             for(int i=0;i<3;i++){
                 if((which_boundary[2*i] || which_boundary[2*i+1]) && reflect[i]){
-
+                    printf("%d %d\n",which_boundary[2*i],which_boundary[2*i+1]);
                    bound_id = which_boundary[2*i+1];
                    wall_pos = const_args[2*i+bound_id];//position of the wall
 
                    //Detect contact with wall
-                   pen_depth = radius[idx]-abs(wall_pos-position[idx*3+i]);
+                   pen_depth = abs(wall_pos-position[idx*3+i])-radius[idx];
                    if(pen_depth < 0){
                        //(x - x_a)
-                       temp_pos1[i] = (wall_pos-position[idx*3+i]);temp_pos1[(i+1)%3]=0;temp_pos1[(i+2)%3]=0;
-                       printf("%f %f %f %u  %u\n",position[idx*3],position[idx*3+1],position[idx*3+2],idx,iter);
+                      // printf("pen depth is %f\n",pen_depth);
+                       temp_pos1[i] = 1.0*(wall_pos-position[idx*3+i]);temp_pos1[(i+1)%3]=0;temp_pos1[(i+2)%3]=0;
+
                        equalize(temp_pos2,temp_pos1);
+                   //    scalMult(temp_pos2,-1.0);
 
                        if(norm(temp_pos2) != 0){
                          scalMult(temp_pos2,(1.0/norm(temp_pos2)));//unit normal vector
@@ -523,7 +547,7 @@ __global__ void calcForces(real_d *force, real_d *torque, const real_d *position
                        //kdn*v_n
                        scalMult(temp_pos2,-1.0*const_args[10]);
 
-                       //k_s*pn
+                       //k_s*pn........JUST MODIFIED....MAYBE -1
                        scalMult(temp_force,const_args[9]*pen_depth);
 
                        //compile the normal force
@@ -531,13 +555,12 @@ __global__ void calcForces(real_d *force, real_d *torque, const real_d *position
 
 
                        //Find the magnitude of tangential force
-                       mag =  fmin(const_args[14]*norm(temp_pos1),const_args[15]*norm(temp_force));
+                       mag =  -1.0*fmin(const_args[14]*norm(temp_pos1),const_args[15]*norm(temp_force));
 
                        //store F_t in temp_pos1
                        if(norm(temp_pos1) != 0.0){
                         scalMult(temp_pos1,(mag/norm(temp_pos1)));
                        }
-
 
                        //add tangential forces
                        add(&force[idx*3],temp_pos1);
@@ -562,9 +585,10 @@ __global__ void calcForces(real_d *force, real_d *torque, const real_d *position
 
         //Calculate the forces...First iterate through cells which are neighbours
         count=0;
-        while((count < 26) && (neighbour_list[n_id+count] != cell_id)){
+       while((count < 26) && (neighbour_list[n_id+count] != cell_id)){
             //iterate through the particle list of this cell
             head_id = cell_list[neighbour_list[n_id+count]]-1;
+             //printf("%u\n",head_id);
             for(int curr_id = head_id;curr_id != -1;curr_id = particle_list[curr_id]-1){
                if(curr_id != idx){
                    //Contact detection
@@ -601,6 +625,7 @@ __global__ void calcForces(real_d *force, real_d *torque, const real_d *position
 
         //Now iterate through own list
         head_id = cell_list[cell_id]-1;
+
         for(int curr_id = head_id;curr_id != -1;curr_id  = particle_list[curr_id]-1){
             if(curr_id != idx){
                 //Contact detection

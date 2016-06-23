@@ -1,5 +1,5 @@
 part_input_file       test.in
-time_end              4.0
+time_end              2.0
 timestep_length       0.01
 part_out_freq         3
 part_out_name_base    test_
