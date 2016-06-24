@@ -40,7 +40,11 @@ void VTKWriter::writeVTKOutput(const cudaDeviceBuffer<real_d> &mass, const cudaD
     outfile<<"SCALARS m double"<<std::endl;
     outfile<<"LOOKUP_TABLE default"<<std::endl;
     for(int i=0;i<num_particles;i++){
-        outfile<<std::setprecision(8)<<mass[i]<<std::endl;
+	if(mass[i] < 1000)
+       		outfile<<std::setprecision(8)<<mass[i]<<std::endl;
+	else
+		 outfile<<std::setprecision(8)<<-1<<std::endl;
+
     }
 
     //Output radius

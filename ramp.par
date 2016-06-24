@@ -1,9 +1,9 @@
 part_input_file       ramp.in
 time_end              25.0
-timestep_length       0.0001
+timestep_length       0.001
 part_out_freq         30
 part_out_name_base    ramp_
-vtk_out_freq          60
+vtk_out_freq          30
 vtk_out_name_base     ramp_
 cl_workgroup_1dsize   512
 cl_workgroup_3dsize_x 8

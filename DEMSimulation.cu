@@ -201,10 +201,10 @@ int main(int argc, char *argv[]){
         initializeMoi<<<num_blocks,threads_per_blocks>>>(moi.devicePtr,radius.devicePtr,mass.devicePtr,numparticles);
 
         //Initialise quats for every particle
-        initialiseQuats<<<num_blocks,threads_per_blocks >>>  (rotation.devicePtr,numparticles);
+        initialiseQuats<<<num_blocks,threads_per_blocks >>>  (rotation.devicePtr,mass.devicePtr,numparticles);
 
         // Initialising all the rotation for every particle
-        initialiseRotation<<< num_blocks,threads_per_blocks >>>  (rotationvector.devicePtr,numparticles) ;
+        initialiseRotation<<< num_blocks,threads_per_blocks >>>  (rotationvector.devicePtr,mass.devicePtr,numparticles) ;
 
         //Create the list of neighbours for each cell depending upon the boundary conditions
         createNeighbourList<<<gridDim,blockDim>>>(neighbour_list.devicePtr,num_cells.devicePtr,reflect.devicePtr);
@@ -245,13 +245,15 @@ int main(int argc, char *argv[]){
 
             //update angular velocity
             updateAngVelocity<<<num_blocks,threads_per_blocks>>>(a_velocity.devicePtr,moi.devicePtr,torquenew.devicePtr,\
-                                                                 timestep_length,numparticles);
+                                                                 timestep_length,mass.devicePtr,numparticles);
 
             //update quaternion
-            updateQuat<<<num_blocks,threads_per_blocks>>>(rotation.devicePtr,a_velocity.devicePtr,timestep_length,numparticles);
+            updateQuat<<<num_blocks,threads_per_blocks>>>(rotation.devicePtr,a_velocity.devicePtr,\
+                                                          timestep_length,mass.devicePtr,numparticles);
 
             //apply quaternion to the rotation
-            applyQuats<<<num_blocks,threads_per_blocks>>>(rotationvector.devicePtr,rotation.devicePtr,numparticles);
+            applyQuats<<<num_blocks,threads_per_blocks>>>(rotationvector.devicePtr,rotation.devicePtr,\
+                                                          mass.devicePtr,numparticles);
 
             // Copy the forces
             copyForces<<<num_blocks,threads_per_blocks>>>(forceold.devicePtr,forcenew.devicePtr, \

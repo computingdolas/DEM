@@ -73,6 +73,7 @@ __device__ bool isBoundaryCell(const u_int cell_id, const int *num_cells, bool *
     ids[1] = (cell_id%(num_cells[0]*num_cells[1]))/num_cells[0];
     ids[2] = cell_id/(num_cells[0]*num_cells[1]);
 
+   // printf("%u %u %u\n",ids[0],ids[1],ids[2]);
     bool ret_value = false;
     for(int i=0;i<3;i++){
         if(ids[i] == 0){
@@ -88,7 +89,7 @@ __device__ bool isBoundaryCell(const u_int cell_id, const int *num_cells, bool *
             which_boundary[2*i+1] = false;
         }
 
-        ret_value = ret_value || which_boundary[2*i];
+        ret_value = ret_value || which_boundary[2*i] || which_boundary[2*i+1];
     }
 
     return ret_value;
@@ -335,11 +336,11 @@ __global__ void createNeighbourList(int *neighbour_list, const int *num_cells, c
 
 }
 
-__global__ void initialiseRotation(real_d  * rotationVector,const u_int numparticles) {
+__global__ void initialiseRotation(real_d  * rotationVector,const real_d *mass,const u_int numparticles) {
 
     u_int idx  =   threadIdx.x+blockIdx.x*blockDim.x ;
 
-    if (idx < numparticles){
+    if (idx < numparticles && !isinf(mass[idx])){
 
         u_int vidx = idx * 3 ;
         rotationVector[vidx] = 1.0;
@@ -351,11 +352,11 @@ __global__ void initialiseRotation(real_d  * rotationVector,const u_int numparti
 
 }
 
-__global__ void initialiseQuats(real_d * rotation,const u_int numparticles  ){
+__global__ void initialiseQuats(real_d * rotation,const real_d *mass,const u_int numparticles  ){
 
     u_int idx  =   threadIdx.x+blockIdx.x*blockDim.x ;
 
-    if (idx < numparticles){
+    if (idx < numparticles && !isinf(mass[idx])){
 
         u_int vidx = idx * 4 ;
         rotation[vidx] = 1.0 ;
@@ -371,7 +372,7 @@ __global__ void initialiseQuats(real_d * rotation,const u_int numparticles  ){
 __global__ void initializeMoi(real_d *moi, const real_d *radius, const real_d *mass, const u_int numparticles){
     u_int idx = threadIdx.x+ blockIdx.x*blockDim.x;
 
-    if(idx < numparticles && !isinf(radius[idx])){
+    if(idx < numparticles && !isinf(mass[idx])){
         moi[idx] = 0.4*mass[idx]*radius[idx]*radius[idx];
 
     }
@@ -379,13 +380,13 @@ __global__ void initializeMoi(real_d *moi, const real_d *radius, const real_d *m
 
 //Update the angular velocity
 __global__ void updateAngVelocity(real_d *a_velocity,const real_d *moi,const real_d *torque,\
-                                  const real_d time_step, const u_int numparticles){
+                                  const real_d time_step, const real_d *mass,const u_int numparticles){
     u_int idx = threadIdx.x+ blockIdx.x*blockDim.x;
 
-    if(idx < numparticles && moi[idx] != 0){
+    if(idx < numparticles && moi[idx] != 0 && !isinf(mass[idx])){
         for(int i=0;i<3;i++){
-           // a_velocity[idx*3+i] += time_step*(torque[idx*3+i])/moi[idx];
-            a_velocity[idx*3+i] = 0;
+           a_velocity[idx*3+i] += time_step*(torque[idx*3+i])/moi[idx];
+           // a_velocity[idx*3+i] = 0;
         }
       //printf("%f %f %f %u \n",torque[idx*3],torque[idx*3+1],torque[idx*3+2],idx);
     }
@@ -393,11 +394,11 @@ __global__ void updateAngVelocity(real_d *a_velocity,const real_d *moi,const rea
 }
 
 //Update the quaternion
-__global__ void updateQuat(real_d *rotation,real_d *a_velocity,const real_d time_step, const real_d numparticles){
+__global__ void updateQuat(real_d *rotation,real_d *a_velocity,const real_d time_step, const real_d *mass,const real_d numparticles){
     u_int idx = threadIdx.x+blockIdx.x*blockDim.x;
 
 
-    if(idx < numparticles){
+    if(idx < numparticles && !isinf(mass[idx])){
         real_d omg_q[4] = {0.0,a_velocity[idx*3],a_velocity[idx*3+1],a_velocity[idx*3+2]};
         quatProd(omg_q,&rotation[idx*4]);//quaternion: (0,w)*q stored in omg_q
         for(int i=0;i<4;i++){
@@ -409,11 +410,11 @@ __global__ void updateQuat(real_d *rotation,real_d *a_velocity,const real_d time
 }
 
 //Apply quaternion to find the rotation
-__global__ void applyQuats(real_d *rotvec, const real_d *rot, const u_int numparticles){
+__global__ void applyQuats(real_d *rotvec, const real_d *rot, const real_d *mass,const u_int numparticles){
    u_int idx = threadIdx.x+blockIdx.x*blockDim.x;
 
 
-   if(idx < numparticles){
+   if(idx < numparticles && !isinf(mass[idx])){
        real_d qt[4] = {rot[4*idx],-1.0*rot[4*idx+1],-1.0*rot[4*idx+2],-1.0*rot[4*idx+3]};
        real_d q[4] = {rot[4*idx],rot[4*idx+1],rot[4*idx+2],rot[4*idx+3]};
        real_d r[4] = {0.0,rotvec[3*idx],rotvec[3*idx+1],rotvec[3*idx+2]};
@@ -513,6 +514,7 @@ __global__ void calcForces(real_d *force, real_d *torque, const real_d *position
        if(isBoundaryCell(cell_id,num_cells,which_boundary)){
             real_d wall_pos,vn,mag;
             for(int i=0;i<3;i++){
+               // printf("%u %u %u\n",id[0],id[1],id[2]);
                 if((which_boundary[2*i] || which_boundary[2*i+1]) && reflect[i]){
                     
                    bound_id = which_boundary[2*i+1];
@@ -520,7 +522,7 @@ __global__ void calcForces(real_d *force, real_d *torque, const real_d *position
 
                    //Detect contact with wall
                    pen_depth = abs(wall_pos-position[idx*3+i])-radius[idx];
-                   if(pen_depth < 0){
+                   if(pen_depth <= 0){
                        //(x - x_a)
                       // printf("pen depth is %f\n",pen_depth);
                        temp_pos1[i] = 1.0*(wall_pos-position[idx*3+i]);temp_pos1[(i+1)%3]=0;temp_pos1[(i+2)%3]=0;
