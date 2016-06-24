@@ -220,7 +220,7 @@ __device__ void addForces(const u_int id_a, const u_int id_b, const real_d *posi
     //printf("My normal is %f %f %f\n",force_n[0],force_n[1],force_n[2]);
     //printf("ks, kdn, p: %f %f %f",const_args[9],const_args[10],pen_depth);
 
-    real_d ft = fmin(norm(force_n)*kf,kdt*norm(vel_t));
+    real_d ft = -1.0*fmin(norm(force_n)*kf,kdt*norm(vel_t));
 
     if(norm(vel_t)  != 0){
        //printf("norm vel_t %f\n",norm(vel_t));
@@ -447,7 +447,9 @@ __global__ void updateListsParPar(u_int * cell_list, u_int * particle_list, cons
         u_int j = (pos[1]-const_args[2]) / const_args[7] ;
         u_int k = (pos[2]-const_args[4])/ const_args[8];
 
-        //printf("%f %f %f\n",pos[0],pos[1],pos[2]);
+        if(pos[0] >  const_args[1] || pos[0] < const_args[0]) printf("X coordinate out of bounds %u\n",idx);
+        if(pos[1] >  const_args[3] || pos[1] < const_args[2]) printf("Y coordinate out of bounds %u\n",idx);
+        if(pos[2] >  const_args[5] || pos[2] < const_args[4]) printf("Z coordinate out of bounds %u\n",idx);
         if(i == num_cells[0]){
             i = i-1;
         }
@@ -512,7 +514,7 @@ __global__ void calcForces(real_d *force, real_d *torque, const real_d *position
             real_d wall_pos,vn,mag;
             for(int i=0;i<3;i++){
                 if((which_boundary[2*i] || which_boundary[2*i+1]) && reflect[i]){
-                    printf("%d %d\n",which_boundary[2*i],which_boundary[2*i+1]);
+                    
                    bound_id = which_boundary[2*i+1];
                    wall_pos = const_args[2*i+bound_id];//position of the wall
 
@@ -587,11 +589,13 @@ __global__ void calcForces(real_d *force, real_d *torque, const real_d *position
         count=0;
        while((count < 26) && (neighbour_list[n_id+count] != cell_id)){
             //iterate through the particle list of this cell
-            head_id = cell_list[neighbour_list[n_id+count]]-1;
-             //printf("%u\n",head_id);
-            for(int curr_id = head_id;curr_id != -1;curr_id = particle_list[curr_id]-1){
+            head_id = cell_list[neighbour_list[n_id+count]];
+            //printf("%u\n",head_id);
+            for(int curr_id = head_id-1;curr_id != -1;curr_id = particle_list[curr_id]-1){
                if(curr_id != idx){
                    //Contact detection
+		  // printf("%d\n",curr_id);
+
                    in_contact =  contactDetect(idx,curr_id,position,radius,&pen_depth);
                    if(in_contact){
                        //printf("contact detected\n");
@@ -624,9 +628,9 @@ __global__ void calcForces(real_d *force, real_d *torque, const real_d *position
 
 
         //Now iterate through own list
-        head_id = cell_list[cell_id]-1;
+        head_id = cell_list[cell_id];
 
-        for(int curr_id = head_id;curr_id != -1;curr_id  = particle_list[curr_id]-1){
+        for(int curr_id = head_id-1;curr_id != -1;curr_id  = particle_list[curr_id]-1){
             if(curr_id != idx){
                 //Contact detection
                 in_contact =  contactDetect(idx,curr_id,position,radius,&pen_depth);

@@ -10,8 +10,8 @@ cl_workgroup_3dsize_x 8
 cl_workgroup_3dsize_y 4
 cl_workgroup_3dsize_z 4
 g_x                   0
-g_y                   -1
-g_z                   0
+g_y                   0
+g_z                   1
 k_s                   100
 k_dn                  2
 x_min                 0

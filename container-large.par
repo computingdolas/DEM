@@ -20,9 +20,9 @@ z_max                 1.4
 x_n                   7
 y_n                   19
 z_n                   7
-reflect_x             1
-reflect_y             1
-reflect_z             1
+reflect_x             0
+reflect_y             0
+reflect_z             0
 g_x                   0
 g_y                   -1
 g_z                   0
